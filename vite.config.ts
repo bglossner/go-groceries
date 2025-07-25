@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => {
   const plugins = [react(), TanStackRouterVite()];
 
   if (mode === 'pwa') {
+    console.log('PWA mode activated!');
     plugins.push(
       VitePWA({
         registerType: 'autoUpdate',
@@ -22,7 +23,7 @@ export default defineConfig(({ mode }) => {
         },
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
         manifest: {
-          name: 'Groceries Helper',
+          name: 'Go Groceries',
           short_name: 'Groceries',
           start_url: '/index.html',
           description: 'A simple groceries helper app',
@@ -44,7 +45,7 @@ export default defineConfig(({ mode }) => {
             sizes: '399x370',
             type: 'image/png',
             form_factor: "narrow",
-            label: "Groceries Helper",
+            label: "Go Groceries",
             platform: 'android'
           }],
         },
@@ -53,6 +54,8 @@ export default defineConfig(({ mode }) => {
         },
       }),
     );
+  } else {
+    console.log('Not in PWA mode: ' + mode);
   }
 
   return {

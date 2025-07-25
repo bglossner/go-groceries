@@ -1,8 +1,10 @@
 import React, { useEffect } from 'react';
-import { useFieldArray, useFormContext, Controller, useWatch } from 'react-hook-form';
+import { useFieldArray, useFormContext, Controller, useWatch, useFormState } from 'react-hook-form';
 import { TextField, IconButton, Box, Typography } from '@mui/material';
 import { RemoveCircleOutline } from '@mui/icons-material';
 import type { Ingredient } from '../db/db';
+
+const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 
 interface IngredientFormProps {
   name: string;
@@ -17,6 +19,7 @@ const IngredientForm: React.FC<IngredientFormProps> = ({ name, label }) => {
   });
 
   const watchedIngredients: Ingredient[] = useWatch({ control, name });
+  const ingredientsFormState = useFormState({ control, name });
 
   useEffect(() => {
     if (!watchedIngredients) {
@@ -27,7 +30,7 @@ const IngredientForm: React.FC<IngredientFormProps> = ({ name, label }) => {
 
     // If the list is empty, add one empty row
     if (actualIngredients.length === 0) {
-      append({ name: '', quantity: 1 });
+      append({ name: '', quantity: undefined });
       return;
     }
 
@@ -38,7 +41,7 @@ const IngredientForm: React.FC<IngredientFormProps> = ({ name, label }) => {
       // Check if there's already an empty row at the end
       const hasEmptyRowAtEnd = actualIngredients.length > 0 && actualIngredients[actualIngredients.length - 1].name.trim() === '';
       if (!hasEmptyRowAtEnd) {
-        append({ name: '', quantity: 1 });
+        append({ name: '', quantity: undefined });
       }
     }
   }, [watchedIngredients, append]);
@@ -51,20 +54,24 @@ const IngredientForm: React.FC<IngredientFormProps> = ({ name, label }) => {
           <Controller
             name={`${name}.${index}.name`}
             control={control}
-            render={({ field }) => (
+            render={({ field, fieldState: { error } }) => (
               <TextField
                 {...field}
                 margin="dense"
                 label="Ingredient Name"
                 type="text"
                 fullWidth
+                value={capitalize(field.value || '')}
+                onChange={(e) => field.onChange(e.target.value)}
+                error={!!error || !!ingredientsFormState.errors[name]}
+                helperText={error?.message || ingredientsFormState.errors[name]?.message as string}
               />
             )}
           />
           <Controller
             name={`${name}.${index}.quantity`}
             control={control}
-            render={({ field }) => (
+            render={({ field, fieldState: { error } }) => (
               <TextField
                 {...field}
                 margin="dense"
@@ -72,6 +79,8 @@ const IngredientForm: React.FC<IngredientFormProps> = ({ name, label }) => {
                 type="number"
                 fullWidth
                 onChange={(e) => field.onChange(e.target.value === '' ? undefined : parseInt(e.target.value, 10))}
+                error={!!error}
+                helperText={error?.message}
               />
             )}
           />

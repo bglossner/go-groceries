@@ -1,7 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type GroceryList, type Meal, type GroceryListState } from '../db/db';
-import { List, ListItem, ListItemText, Checkbox, Typography, Button, Divider, Box } from '@mui/material';
+import { List, ListItem, ListItemText, Checkbox, Typography, Button, Divider, Box, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { useSearch } from '@tanstack/react-router';
 import { z } from 'zod';
 
@@ -14,6 +14,7 @@ const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 const GoGroceryPage: React.FC = () => {
   const queryClient = useQueryClient();
   const search = useSearch({ from: '/go-grocery' });
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
   const validatedSearch = groceryListSearchSchema.safeParse(search);
 
@@ -53,6 +54,7 @@ const GoGroceryPage: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groceryListState', groceryListId] });
+      setResetConfirmOpen(false);
     },
   });
 
@@ -64,13 +66,13 @@ const GoGroceryPage: React.FC = () => {
       if (meal) {
         meal.ingredients.forEach(ing => {
           const lowerCaseName = ing.name.toLowerCase();
-          ingredientsMap.set(lowerCaseName, (ingredientsMap.get(lowerCaseName) || 0) + ing.quantity);
+          ingredientsMap.set(lowerCaseName, (ingredientsMap.get(lowerCaseName) || 0) + (ing.quantity ?? 1));
         });
       }
     });
     groceryList.customIngredients?.forEach(ing => {
       const lowerCaseName = ing.name.toLowerCase();
-      ingredientsMap.set(lowerCaseName, (ingredientsMap.get(lowerCaseName) || 0) + ing.quantity);
+      ingredientsMap.set(lowerCaseName, (ingredientsMap.get(lowerCaseName) || 0) + (ing.quantity ?? 1));
     });
     const ingredients = Array.from(ingredientsMap.entries()).map(([name, quantity]) => ({ name, quantity }));
     const checked = groceryListState?.checkedIngredients || [];
@@ -88,8 +90,16 @@ const GoGroceryPage: React.FC = () => {
     mutation.mutate(newChecked);
   };
 
-  const handleReset = () => {
+  const handleResetClick = () => {
+    setResetConfirmOpen(true);
+  };
+
+  const handleConfirmReset = () => {
     mutation.mutate([]);
+  };
+
+  const handleCancelReset = () => {
+    setResetConfirmOpen(false);
   };
 
   if (!groceryList) {
@@ -104,7 +114,7 @@ const GoGroceryPage: React.FC = () => {
     <div>
       <Typography variant="h4">{groceryList.name}</Typography>
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-        <Button onClick={handleReset} variant="outlined">Reset</Button>
+        <Button onClick={handleResetClick} variant="outlined">Reset</Button>
       </Box>
       {allItemsChecked && (
         <Typography variant="h5" sx={{ textAlign: 'center', my: 4 }}>
@@ -131,6 +141,17 @@ const GoGroceryPage: React.FC = () => {
           );
         })}
       </List>
+
+      <Dialog open={resetConfirmOpen} onClose={handleCancelReset}>
+        <DialogTitle>Confirm Reset</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to reset this grocery list?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelReset}>Go Back</Button>
+          <Button onClick={handleConfirmReset} color="error">Reset</Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 };

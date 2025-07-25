@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type Meal, ingredientSchema } from '../db/db';
-import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box } from '@mui/material';
-import { Edit, Delete } from '@mui/icons-material';
+import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box, Accordion, AccordionSummary, AccordionDetails, Typography } from '@mui/material';
+import { Edit, Delete, ExpandMore } from '@mui/icons-material';
 import { useForm, Controller, FormProvider, type ResolverOptions } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -17,10 +17,14 @@ const mealFormSchema = z.object({
 
 type MealForm = z.infer<typeof mealFormSchema>;
 
+const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
+
 const Meals: React.FC = () => {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
 
   const { data: meals } = useQuery({
     queryKey: ['meals'],
@@ -44,7 +48,7 @@ const Meals: React.FC = () => {
     },
     defaultValues: {
       name: '',
-      ingredients: [{ name: '', quantity: 1 }],
+      ingredients: [{ name: '', quantity: undefined }],
     },
   });
 
@@ -68,6 +72,8 @@ const Meals: React.FC = () => {
     mutationFn: (id: number) => db.meals.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['meals'] });
+      setDeleteConfirmOpen(false);
+      setItemToDelete(null);
     },
   });
 
@@ -81,7 +87,7 @@ const Meals: React.FC = () => {
     } else {
       reset({
         name: '',
-        ingredients: [{ name: '', quantity: 1 }],
+        ingredients: [{ name: '', quantity: undefined }],
       });
     }
     setOpen(true);
@@ -99,9 +105,9 @@ const Meals: React.FC = () => {
     const mealPayload: Meal = {
       id: selectedMeal?.id,
       name: data.name,
-      ingredients: data.ingredients?.filter(ing => ing.name && ing.name.trim() !== '' && ing.quantity && ing.quantity > 0).map(ing => ({
+      ingredients: data.ingredients?.filter(ing => ing.name && ing.name.trim() !== '').map(ing => ({
         name: ing.name!.trim().toLowerCase(),
-        quantity: Number(ing.quantity!),
+        quantity: ing.quantity == null ? 1 : Number(ing.quantity!),
       })) || [],
       createdAt: selectedMeal?.createdAt || now,
       updatedAt: now,
@@ -109,30 +115,60 @@ const Meals: React.FC = () => {
     mutation.mutate(mealPayload);
   };
 
+  const handleDeleteClick = (id: number, name: string) => {
+    setItemToDelete({ id, name });
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (itemToDelete) {
+      deleteMutation.mutate(itemToDelete.id);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteConfirmOpen(false);
+    setItemToDelete(null);
+  };
+
   return (
     <div>
       <List>
         {meals?.map((meal) => (
-          <ListItem key={meal.id}>
-            <ListItemText
-              primary={meal.name}
-              secondary={`Created: ${meal.createdAt ? new Date(meal.createdAt).toLocaleString() : 'N/A'} - Updated: ${meal.updatedAt ? new Date(meal.updatedAt).toLocaleString() : 'N/A'
-                }`}
-            />
-            <IconButton onClick={() => handleClickOpen(meal)}>
-              <Edit />
-            </IconButton>
-            <IconButton onClick={() => deleteMutation.mutate(meal.id!)}>
-              <Delete />
-            </IconButton>
-          </ListItem>
+          <Accordion key={meal.id}>
+            <AccordionSummary expandIcon={<ExpandMore />}>
+              <ListItemText
+                primary={meal.name}
+                secondary={`Created: ${meal.createdAt ? new Date(meal.createdAt).toLocaleString() : 'N/A'} - Updated: ${meal.updatedAt ? new Date(meal.updatedAt).toLocaleString() : 'N/A'
+                  }`}
+              />
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box>
+                <IconButton onClick={() => handleClickOpen(meal)}>
+                  <Edit />
+                </IconButton>
+                <IconButton onClick={() => handleDeleteClick(meal.id!, meal.name)}>
+                  <Delete />
+                </IconButton>
+                <Typography variant="h6" sx={{ mt: 2 }}>Ingredients:</Typography>
+                <List>
+                  {meal.ingredients.map((ing, index) => (
+                    <ListItem key={index}>
+                      <ListItemText primary={`${capitalize(ing.name)}: ${ing.quantity}`} />
+                    </ListItem>
+                  ))}
+                </List>
+              </Box>
+            </AccordionDetails>
+          </Accordion>
         ))}
       </List>
 
       <Dialog open={open} onClose={handleClose}>
         <DialogTitle>{selectedMeal ? 'Edit Meal' : 'Create New Meal'}</DialogTitle>
         <FormProvider {...methods}>
-          <form onSubmit={(...args) => { console.log(args); return handleSubmit(onSubmit)(...args);  }}>
+          <form onSubmit={(...args) => { return handleSubmit(onSubmit)(...args);  }}>
             <DialogContent>
               <Controller
                 name="name"
@@ -160,6 +196,18 @@ const Meals: React.FC = () => {
           </form>
         </FormProvider>
       </Dialog>
+
+      <Dialog open={deleteConfirmOpen} onClose={handleCancelDelete}>
+        <DialogTitle>Confirm Deletion</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to delete {itemToDelete?.name}?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelDelete}>Go Back</Button>
+          <Button onClick={handleConfirmDelete} color="error">Delete</Button>
+        </DialogActions>
+      </Dialog>
+
       <Box sx={{ mt: 2, display: 'flex', justifyContent: 'right' }}>
         <Button
           variant="contained"

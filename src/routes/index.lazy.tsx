@@ -95,7 +95,7 @@ function Index() {
   return (
     <div>
       <Typography variant="h4" gutterBottom>
-        Welcome to Groceries Helper!
+        Welcome to Go Groceries!
       </Typography>
       <Typography variant="body1">
         Use the navigation bar to manage your meals and grocery lists.

@@ -42,7 +42,8 @@ const GroceryListPage: React.FC = () => {
   const [formOpen, setFormOpen] = useState(false);
   const [selectedList, setSelectedList] = useState<GroceryList | null>(null);
   const [viewingAggregatedIngredients, setViewingAggregatedIngredients] = useState<{ name: string; quantity: number }[] | null>(null);
-  
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
 
   const { data: groceryLists } = useQuery({
     queryKey: ['groceryLists'],
@@ -59,7 +60,7 @@ const GroceryListPage: React.FC = () => {
     defaultValues: {
       name: '',
       meals: [],
-      customIngredients: [{ name: '', quantity: 1 }],
+      customIngredients: [{ name: '', quantity: undefined }],
     },
   });
 
@@ -91,6 +92,8 @@ const GroceryListPage: React.FC = () => {
     mutationFn: (id: number) => db.groceryLists.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groceryLists'] });
+      setDeleteConfirmOpen(false);
+      setItemToDelete(null);
     },
   });
 
@@ -100,13 +103,13 @@ const GroceryListPage: React.FC = () => {
       reset({
         name: list.name || '',
         meals: list.meals || [],
-        customIngredients: list.customIngredients?.map(ing => ({ name: ing.name, quantity: ing.quantity })) || [{ name: '', quantity: 1 }],
+        customIngredients: list.customIngredients?.map(ing => ({ name: ing.name, quantity: ing.quantity })) || [{ name: '', quantity: undefined }],
       });
     } else {
       reset({
         name: '',
         meals: [],
-        customIngredients: [{ name: '', quantity: 1 }],
+        customIngredients: [{ name: '', quantity: undefined }],
       });
     }
     setFormOpen(true);
@@ -122,9 +125,9 @@ const GroceryListPage: React.FC = () => {
     const newList: Partial<GroceryList> = {
       name: data.name || new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }),
       meals: data.meals || [],
-      customIngredients: data.customIngredients?.filter(ing => ing.name && ing.name.trim() !== '' && ing.quantity && ing.quantity > 0).map(ing => ({
+      customIngredients: data.customIngredients?.filter(ing => ing.name && ing.name.trim() !== '').map(ing => ({
         name: ing.name!.trim().toLowerCase(),
-        quantity: Number(ing.quantity!),
+        quantity: ing.quantity == null ? 1 : Number(ing.quantity!),
       })) || [],
     };
     mutation.mutate(newList);
@@ -138,13 +141,13 @@ const GroceryListPage: React.FC = () => {
       if (meal) {
         meal.ingredients.forEach(ing => {
           const lowerCaseName = ing.name.toLowerCase();
-          ingredientsMap.set(lowerCaseName, (ingredientsMap.get(lowerCaseName) || 0) + ing.quantity);
+          ingredientsMap.set(lowerCaseName, (ingredientsMap.get(lowerCaseName) || 0) + (ing.quantity ?? 1));
         });
       }
     });
     list.customIngredients?.forEach(ing => {
       const lowerCaseName = ing.name.toLowerCase();
-      ingredientsMap.set(lowerCaseName, (ingredientsMap.get(lowerCaseName) || 0) + ing.quantity);
+      ingredientsMap.set(lowerCaseName, (ingredientsMap.get(lowerCaseName) || 0) + (ing.quantity ?? 1));
     });
     const ingredients = Array.from(ingredientsMap.entries()).map(([name, quantity]) => ({ name, quantity }));
     setViewingAggregatedIngredients(ingredients);
@@ -158,7 +161,7 @@ const GroceryListPage: React.FC = () => {
       if (meal) {
         meal.ingredients.forEach(ing => {
           const lowerCaseName = ing.name.toLowerCase();
-          ingredientsMap.set(lowerCaseName, (ingredientsMap.get(lowerCaseName) || 0) + ing.quantity);
+          ingredientsMap.set(lowerCaseName, (ingredientsMap.get(lowerCaseName) || 0) + (ing.quantity ?? 1));
         });
       }
     });
@@ -171,7 +174,21 @@ const GroceryListPage: React.FC = () => {
     return Array.from(ingredientsMap.values()).reduce((acc, curr) => acc + curr, 0);
   }, [watchedMeals, meals, watchedCustomIngredients]);
 
-  
+  const handleDeleteClick = (id: number, name: string) => {
+    setItemToDelete({ id, name });
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (itemToDelete) {
+      deleteMutation.mutate(itemToDelete.id);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteConfirmOpen(false);
+    setItemToDelete(null);
+  };
 
   return (
     <div>
@@ -186,7 +203,7 @@ const GroceryListPage: React.FC = () => {
                 <IconButton onClick={() => handleClickOpen(list)}>
                   <Edit />
                 </IconButton>
-                <IconButton onClick={() => deleteMutation.mutate(list.id!)}>
+                <IconButton onClick={() => handleDeleteClick(list.id!, list.name)}>
                   <Delete />
                 </IconButton>
                 <Link to="/go-grocery" search={{ groceryListId: list.id }}>
@@ -216,7 +233,7 @@ const GroceryListPage: React.FC = () => {
               <Controller
                 name="name"
                 control={control}
-                render={({ field }) => (
+                render={({ field, formState: { errors } }) => (
                   <TextField
                     {...field}
                     autoFocus
@@ -224,6 +241,8 @@ const GroceryListPage: React.FC = () => {
                     label="Grocery List Name"
                     type="text"
                     fullWidth
+                    error={!!errors.name}
+                    helperText={errors.name?.message}
                   />
                 )}
               />
@@ -265,6 +284,17 @@ const GroceryListPage: React.FC = () => {
         </FormProvider>
       </Dialog>
       <AggregatedIngredientsDialog open={!!viewingAggregatedIngredients} onClose={() => setViewingAggregatedIngredients(null)} ingredients={viewingAggregatedIngredients || []} />
+
+      <Dialog open={deleteConfirmOpen} onClose={handleCancelDelete}>
+        <DialogTitle>Confirm Deletion</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to delete {itemToDelete?.name}?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelDelete}>Go Back</Button>
+          <Button onClick={handleConfirmDelete} color="error">Delete</Button>
+        </DialogActions>
+      </Dialog>
 
       <Box sx={{ mt: 2, display: 'flex', justifyContent: 'right' }}>
         <Button

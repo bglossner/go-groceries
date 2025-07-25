@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 export const ingredientSchema = z.object({
   name: z.string().optional().default(''),
-  quantity: z.number().min(1, 'Quantity must be at least 1').optional().default(1),
+  quantity: z.number().min(1, 'Quantity must be at least 1').optional(),
 });
 
 export type Ingredient = z.infer<typeof ingredientSchema>;
