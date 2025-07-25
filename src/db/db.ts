@@ -2,8 +2,8 @@ import Dexie, { type Table } from 'dexie';
 import { z } from 'zod';
 
 export const ingredientSchema = z.object({
-  name: z.string().min(1, 'Ingredient name is required'),
-  quantity: z.number().min(1, 'Quantity must be at least 1'),
+  name: z.string().optional().default(''),
+  quantity: z.number().min(1, 'Quantity must be at least 1').optional().default(1),
 });
 
 export type Ingredient = z.infer<typeof ingredientSchema>;

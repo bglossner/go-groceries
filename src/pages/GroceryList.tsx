@@ -55,7 +55,7 @@ const GroceryListPage: React.FC = () => {
   });
 
   const methods = useForm<GroceryListForm>({
-    resolver: zodResolver(groceryListFormSchema),
+    resolver: zodResolver(groceryListFormSchema) as any,
     defaultValues: {
       name: '',
       meals: [],

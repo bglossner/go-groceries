@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useFieldArray, useFormContext, Controller } from 'react-hook-form';
+import { useFieldArray, useFormContext, Controller, useWatch } from 'react-hook-form';
 import { TextField, IconButton, Box, Typography } from '@mui/material';
 import { RemoveCircleOutline } from '@mui/icons-material';
 import type { Ingredient } from '../db/db';
@@ -10,20 +10,36 @@ interface IngredientFormProps {
 }
 
 const IngredientForm: React.FC<IngredientFormProps> = ({ name, label }) => {
-  const { control, watch } = useFormContext();
+  const { control, getValues } = useFormContext();
   const { fields, append, remove } = useFieldArray({
     control,
     name: name,
   });
 
-  const watchedIngredients: Ingredient[] = watch(name);
+  const watchedIngredients: Ingredient[] = useWatch({ control, name });
 
   useEffect(() => {
     if (!watchedIngredients) {
       return;
     }
-    if (watchedIngredients.length === 0 || watchedIngredients[watchedIngredients.length - 1]?.name?.trim()) {
+
+    const actualIngredients = getValues(name);
+
+    // If the list is empty, add one empty row
+    if (actualIngredients.length === 0) {
       append({ name: '', quantity: 1 });
+      return;
+    }
+
+    const lastIngredient = actualIngredients[actualIngredients.length - 1];
+
+    // If the last ingredient has a name (is not empty), and it's not already followed by an empty row, add a new empty row
+    if (lastIngredient && lastIngredient.name.trim() !== '') {
+      // Check if there's already an empty row at the end
+      const hasEmptyRowAtEnd = actualIngredients.length > 0 && actualIngredients[actualIngredients.length - 1].name.trim() === '';
+      if (!hasEmptyRowAtEnd) {
+        append({ name: '', quantity: 1 });
+      }
     }
   }, [watchedIngredients, append]);
 

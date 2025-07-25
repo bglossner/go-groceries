@@ -3,14 +3,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type Meal, ingredientSchema } from '../db/db';
 import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box } from '@mui/material';
 import { Edit, Delete } from '@mui/icons-material';
-import { useForm, Controller, FormProvider } from 'react-hook-form';
+import { useForm, Controller, FormProvider, type ResolverOptions } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import IngredientForm from '../components/IngredientForm';
 
 const mealFormSchema = z.object({
   name: z.string().min(1, 'Meal name is required'),
-  ingredients: z.array(ingredientSchema).optional(),
+  ingredients: z.array(ingredientSchema).transform((ingredients) => {
+    return ingredients.filter(ing => ing.name && ing.name.trim() !== '');
+  }).refine((ingredients) => ingredients.length > 0, 'Must have at least 1 ingredient')
 });
 
 type MealForm = z.infer<typeof mealFormSchema>;
@@ -34,7 +36,12 @@ const Meals: React.FC = () => {
   });
 
   const methods = useForm<MealForm>({
-    resolver: zodResolver(mealFormSchema),
+    resolver: (values, ctx, options) => {
+      const resolver = zodResolver(mealFormSchema);
+      const resolveValues = resolver(values as MealForm, ctx, options as ResolverOptions<z.input<typeof mealFormSchema>>);
+      console.log(resolveValues);
+      return resolveValues;
+    },
     defaultValues: {
       name: '',
       ingredients: [{ name: '', quantity: 1 }],
@@ -87,6 +94,7 @@ const Meals: React.FC = () => {
   };
 
   const onSubmit = (data: MealForm) => {
+    console.log('submit')
     const now = new Date();
     const mealPayload: Meal = {
       id: selectedMeal?.id,
@@ -124,7 +132,7 @@ const Meals: React.FC = () => {
       <Dialog open={open} onClose={handleClose}>
         <DialogTitle>{selectedMeal ? 'Edit Meal' : 'Create New Meal'}</DialogTitle>
         <FormProvider {...methods}>
-          <form onSubmit={handleSubmit(onSubmit)}>
+          <form onSubmit={(...args) => { console.log(args); return handleSubmit(onSubmit)(...args);  }}>
             <DialogContent>
               <Controller
                 name="name"
