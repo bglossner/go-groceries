@@ -6,7 +6,7 @@ import { Edit, ArrowBack } from '@mui/icons-material';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const recipeSchema = z.object({
   url: z.string().max(500).url().optional().or(z.literal('')),
@@ -27,6 +27,8 @@ function RecipeComponent() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const initialRecipeExists = useRef(false);
 
   const { data: meal } = useQuery<Meal | undefined>({
     queryKey: ['meal', mealId],
@@ -47,9 +49,14 @@ function RecipeComponent() {
   useEffect(() => {
     if (recipe) {
       reset({ url: recipe.url, notes: recipe.notes, images: recipe.images });
+      initialRecipeExists.current = true;
+      setIsEditMode(false);
     } else {
+      reset({ url: '', notes: '', images: [] });
+      initialRecipeExists.current = false;
       setIsEditMode(true);
     }
+    setIsDirty(false);
   }, [recipe, reset]);
 
   const mutation = useMutation({
@@ -87,7 +94,17 @@ function RecipeComponent() {
   };
 
   const handleConfirmDiscard = () => {
-    navigate({ to: '/meals' });
+    setDiscardConfirmOpen(false);
+    setIsDirty(false);
+    if (initialRecipeExists.current) {
+      if (recipe) {
+        reset({ url: recipe.url, notes: recipe.notes, images: recipe.images });
+      }
+      setIsEditMode(false);
+    } else {
+      reset({ url: '', notes: '', images: [] });
+      setIsEditMode(true);
+    }
   };
 
   if (isLoading) {
@@ -118,28 +135,66 @@ function RecipeComponent() {
 
       <form onChange={() => setIsDirty(true)} onSubmit={handleSubmit(onSubmit)}>
         <Box sx={{ mt: 2 }}>
-          <Typography variant="h6">Images</Typography>
+          <Typography variant="h5">Images</Typography>
           {isEditMode ? (
             <Controller
               name="images"
               control={control}
               render={({ field }) => (
-                <input
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  onChange={(e) => {
-                    const files = Array.from(e.target.files || []);
-                    field.onChange([...(field.value || []), ...files]);
-                  }}
-                />
+                <Box>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      field.onChange([...(field.value || []), ...files]);
+                      setIsDirty(true);
+                    }}
+                  />
+                  <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', flexWrap: 'wrap', p: 1 }}>
+                    {(field.value && field.value.length > 0) ? (
+                      field.value.map((image: File, index: number) => (
+                        <Box key={index} sx={{ position: 'relative' }}>
+                          <img
+                            src={URL.createObjectURL(image)}
+                            alt={`recipe-${index}`}
+                            width="150"
+                            style={{ border: '1px solid black', cursor: 'pointer' }}
+                            onClick={() => setSelectedImage(URL.createObjectURL(image))}
+                          />
+                          <IconButton
+                            sx={{
+                              position: 'absolute',
+                              top: 0,
+                              right: 0,
+                              backgroundColor: 'rgba(255,255,255,0.7)',
+                              '&:hover': { backgroundColor: 'rgba(255,255,255,0.9)' }
+                            }}
+                            size="small"
+                            onClick={() => {
+                              const newImages = [...(field.value || [])];
+                              newImages.splice(index, 1);
+                              field.onChange(newImages);
+                              setIsDirty(true);
+                            }}
+                          >
+                            X
+                          </IconButton>
+                        </Box>
+                      ))
+                    ) : (
+                      <Typography>No images selected</Typography>
+                    )}
+                  </Box>
+                </Box>
               )}
             />
           ) : (
             recipe && recipe.images && recipe.images.length > 0 ? (
               <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', flexWrap: 'wrap', p: 1 }}>
                 {recipe.images.map((image: File, index: number) => (
-                  <img key={index} src={URL.createObjectURL(image)} alt={`recipe-${index}`} width="100" style={{ border: '1px solid black' }} />
+                  <img key={index} src={URL.createObjectURL(image)} alt={`recipe-${index}`} width="150" style={{ border: '1px solid black' }} onClick={() => setSelectedImage(URL.createObjectURL(image))} />
                 ))}
               </Box>
             ) : (
@@ -149,7 +204,7 @@ function RecipeComponent() {
         </Box>
 
         <Box sx={{ mt: 2 }}>
-          <Typography variant="h6">Recipe URL</Typography>
+          <Typography variant="h5">Recipe URL</Typography>
           {isEditMode ? (
             <Controller
               name="url"
@@ -174,7 +229,7 @@ function RecipeComponent() {
         </Box>
 
         <Box sx={{ mt: 2 }}>
-          <Typography variant="h6">Notes</Typography>
+          <Typography variant="h5">Notes</Typography>
           {isEditMode ? (
             <Controller
               name="notes"
@@ -218,6 +273,12 @@ function RecipeComponent() {
           <Button onClick={() => setDiscardConfirmOpen(false)}>Cancel</Button>
           <Button onClick={handleConfirmDiscard} color="error">Discard</Button>
         </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!selectedImage} onClose={() => setSelectedImage(null)} maxWidth="md" fullWidth>
+        <DialogContent>
+          {selectedImage && <img src={selectedImage} alt="Enlarged Recipe" style={{ width: '100%', height: 'auto' }} />}
+        </DialogContent>
       </Dialog>
     </Box>
   );
