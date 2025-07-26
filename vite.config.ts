@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type ServerOptions } from 'vite'
 import react from '@vitejs/plugin-react'
 import { TanStackRouterVite } from '@tanstack/router-vite-plugin'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -19,7 +19,8 @@ export default defineConfig(({ mode }) => {
               urlPattern: /\/.*/,
               handler: 'CacheFirst',
             }
-          ]
+          ],
+          cleanupOutdatedCaches: true,
         },
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
         manifest: {
@@ -58,12 +59,18 @@ export default defineConfig(({ mode }) => {
     console.log('Not in PWA mode: ' + mode);
   }
 
+  const serverOptions = {
+    watch: {
+        usePolling: true,
+      },
+      host: mode === 'pwa',
+      allowedHosts: mode === 'pwa' ? true : undefined,
+  } satisfies ServerOptions;
+
   return {
     plugins,
     server: {
-      watch: {
-        usePolling: true,
-      }
+      ...serverOptions,
     }
   };
 });

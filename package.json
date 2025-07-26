@@ -9,6 +9,7 @@
     "build-pwa": "tsc -b && vite build --mode pwa",
     "lint": "eslint .",
     "preview": "vite preview",
+    "dev:pwa": "vite --host --mode pwa",
     "build-and-copy": "npm run build && cp -r dist /mnt/c/Users/bengl/Desktop/temp_projects/ && echo 'Done Copying'"
   },
   "dependencies": {
@@ -20,7 +21,9 @@
     "@tanstack/react-query": "^5.82.0",
     "@tanstack/react-router": "^1.125.6",
     "@tanstack/router-vite-plugin": "^1.125.6",
+    "browser-image-compression": "^2.0.2",
     "dexie": "^4.0.11",
+    "dexie-export-import": "^4.1.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hook-form": "^7.60.0",

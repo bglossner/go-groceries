@@ -6,6 +6,7 @@ import './App.css';
 
 // Import the generated route tree
 import { routeTree } from './routeTree.gen';
+import { DebugConsole } from './pages/DebugConsole';
 
 // Create a new router instance
 const router = createRouter({ routeTree });
@@ -24,6 +25,7 @@ const App: React.FC = () => {
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
       <ReactQueryDevtools initialIsOpen={false} client={queryClient} />
+      <DebugConsole />
     </QueryClientProvider>
   );
 };

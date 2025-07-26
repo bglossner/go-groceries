@@ -7,9 +7,11 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useState, useEffect, useRef } from 'react';
+import imageCompression from 'browser-image-compression';
+import { zodResolverLoggerWrapper } from '../util/zod';
 
 const recipeSchema = z.object({
-  url: z.string().max(500).url().optional().or(z.literal('')),
+  url: z.string().max(500).optional().or(z.literal('')),
   notes: z.string().max(10000).optional(),
   images: z.array(z.instanceof(File)).max(10).optional(),
 });
@@ -20,6 +22,12 @@ export const Route = createFileRoute('/recipe/$mealId')({
   component: RecipeComponent,
 });
 
+const IMAGE_OPTIONS = {
+  maxSizeMB: 1,
+  maxWidthOrHeight: 1920,
+  useWebWorker: true,
+} as const satisfies Parameters<typeof imageCompression>[1];
+
 function RecipeComponent() {
   const { mealId } = Route.useParams();
   const navigate = useNavigate();
@@ -28,25 +36,31 @@ function RecipeComponent() {
   const [isDirty, setIsDirty] = useState(false);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const initialRecipeExists = useRef(false);
+  const initialRecipeExists = useRef<boolean | null>(null);
 
   const { data: meal } = useQuery<Meal | undefined>({
     queryKey: ['meal', mealId],
     queryFn: () => db.meals.get(Number(mealId)),
   });
 
-  const { data: recipe, isLoading } = useQuery<Recipe | undefined>({
+  const { data: recipe, isLoading } = useQuery<Recipe | null>({
     queryKey: ['recipe', mealId],
-    queryFn: () => db.recipes.where('mealId').equals(Number(mealId)).first(),
+    queryFn: async () => {
+      return (await db.recipes.where('mealId').equals(Number(mealId)).first()) ?? null
+    },
     enabled: !!mealId,
   });
 
   const { control, handleSubmit, reset, formState: { errors } } = useForm<RecipeForm>({
-    resolver: zodResolver(recipeSchema),
+    resolver: zodResolverLoggerWrapper(recipeSchema),
     defaultValues: { url: '', notes: '', images: [] },
   });
 
   useEffect(() => {
+    if (initialRecipeExists.current !== null) {
+      return;
+    }
+
     if (recipe) {
       reset({ url: recipe.url, notes: recipe.notes, images: recipe.images });
       initialRecipeExists.current = true;
@@ -65,7 +79,7 @@ function RecipeComponent() {
         mealId: Number(mealId),
         url: formData.url || '',
         notes: formData.notes || '',
-        images: formData.images || [],
+        images: (formData.images || []),
       };
 
       if (recipe?.id) {
@@ -104,6 +118,19 @@ function RecipeComponent() {
     } else {
       reset({ url: '', notes: '', images: [] });
       setIsEditMode(true);
+    }
+  };
+
+  const convertPhotoTaken = async (files: File[]) => {
+    try {
+      return await Promise.all(files.map(async (file) => {
+        const blob = await imageCompression(file, IMAGE_OPTIONS);
+        return new File([blob], file.name, { type: blob.type, lastModified: blob.lastModified || Date.now() });
+      }));
+    } catch (error: any) {
+      console.error(error);
+      alert(error);
+      return [];
     }
   };
 
@@ -149,9 +176,11 @@ function RecipeComponent() {
                       accept="image/*"
                       id="file-input"
                       style={{ display: 'none' }}
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const files = Array.from(e.target.files || []);
-                        field.onChange([...(field.value || []), ...files]);
+                        if (files.length === 0) return;
+                        const convertedFiles = await convertPhotoTaken(files);
+                        field.onChange([...(field.value || []), ...convertedFiles]);
                         setIsDirty(true);
                       }}
                     />
@@ -169,9 +198,11 @@ function RecipeComponent() {
                       capture="environment"
                       id="camera-input"
                       style={{ display: 'none' }}
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const files = Array.from(e.target.files || []);
-                        field.onChange([...(field.value || []), ...files]);
+                        if (files.length === 0) return;
+                        const convertedFiles = await convertPhotoTaken(files);
+                        field.onChange([...(field.value || []), ...convertedFiles]);
                         setIsDirty(true);
                       }}
                     />
