@@ -142,16 +142,48 @@ function RecipeComponent() {
               control={control}
               render={({ field }) => (
                 <Box>
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    onChange={(e) => {
-                      const files = Array.from(e.target.files || []);
-                      field.onChange([...(field.value || []), ...files]);
-                      setIsDirty(true);
-                    }}
-                  />
+                  <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', alignItems: 'center' }}>
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      id="file-input"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        field.onChange([...(field.value || []), ...files]);
+                        setIsDirty(true);
+                      }}
+                    />
+                    <Button
+                      variant="outlined"
+                      component="label"
+                      htmlFor="file-input"
+                      sx={{ mt: 1, mb: 2 }}
+                    >
+                      Upload Photo
+                    </Button>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      id="camera-input"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        field.onChange([...(field.value || []), ...files]);
+                        setIsDirty(true);
+                      }}
+                    />
+                    <Button
+                      variant="outlined"
+                      component="label"
+                      htmlFor="camera-input"
+                      sx={{ mt: 1, mb: 2 }}
+                    >
+                      Take Photo
+                    </Button>
+                  </Box>
                   <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', flexWrap: 'wrap', p: 1 }}>
                     {(field.value && field.value.length > 0) ? (
                       field.value.map((image: File, index: number) => (
