@@ -19,11 +19,13 @@ function Index() {
       const allGroceryLists = await db.groceryLists.toArray();
       const allMeals = await db.meals.toArray();
       const allGroceryListStates = await db.groceryListStates.toArray();
+      const allRecipes = await db.recipes.toArray();
 
       const data = {
         groceryLists: allGroceryLists,
         meals: allMeals,
         groceryListStates: allGroceryListStates,
+        recipes: allRecipes,
       };
 
       const json = JSON.stringify(data, null, 2);
@@ -55,17 +57,19 @@ function Index() {
         try {
           const importedData = JSON.parse(e.target?.result as string);
 
-          await db.transaction('rw', db.groceryLists, db.meals, db.groceryListStates, async () => {
+          await db.transaction('rw', db.groceryLists, db.meals, db.groceryListStates, db.recipes, async () => {
             await Promise.all([
               db.groceryLists.clear(),
               db.meals.clear(),
               db.groceryListStates.clear(),
+              db.recipes.clear(),
             ]);
 
             await Promise.all([
               db.groceryLists.bulkAdd(importedData.groceryLists),
               db.meals.bulkAdd(importedData.meals),
               db.groceryListStates.bulkAdd(importedData.groceryListStates),
+              db.recipes.bulkAdd(importedData.recipes),
             ]);
           });
 
@@ -74,6 +78,7 @@ function Index() {
           await queryClient.refetchQueries({ queryKey: ['groceryLists'] });
           await queryClient.refetchQueries({ queryKey: ['meals'] });
           await queryClient.refetchQueries({ queryKey: ['groceryListStates'] });
+          await queryClient.refetchQueries({ queryKey: ['recipes'] });
 
           setTimeout(() => {
             setImportModalOpen(false);

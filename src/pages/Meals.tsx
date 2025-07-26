@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type Meal, ingredientSchema } from '../db/db';
 import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box, Accordion, AccordionSummary, AccordionDetails, Typography } from '@mui/material';
-import { Edit, Delete, ExpandMore } from '@mui/icons-material';
+import { useNavigate } from '@tanstack/react-router';
+import { Edit, Delete, ExpandMore, Restaurant } from '@mui/icons-material';
 import { useForm, Controller, FormProvider, type ResolverOptions } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -25,6 +26,7 @@ const Meals: React.FC = () => {
   const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
+  const navigate = useNavigate();
 
   const { data: meals } = useQuery({
     queryKey: ['meals'],
@@ -150,6 +152,9 @@ const Meals: React.FC = () => {
                 </IconButton>
                 <IconButton onClick={() => handleDeleteClick(meal.id!, meal.name)}>
                   <Delete />
+                </IconButton>
+                <IconButton onClick={() => meal.id && navigate({ to: '/recipe/$mealId', params: { mealId: meal.id.toString() } })}>
+                  <Restaurant />
                 </IconButton>
                 <Typography variant="h6" sx={{ mt: 2 }}>Ingredients:</Typography>
                 <List>

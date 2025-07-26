@@ -31,17 +31,27 @@ export interface GroceryListState {
   checkedIngredients: string[];
 }
 
+export interface Recipe {
+  id?: number;
+  mealId: number;
+  images: File[];
+  url: string;
+  notes: string;
+}
+
 export class MySubClassedDexie extends Dexie {
   meals!: Table<Meal>;
   groceryLists!: Table<GroceryList>;
   groceryListStates!: Table<GroceryListState>;
+  recipes!: Table<Recipe>;
 
   constructor() {
     super('groceriesHelper');
-    this.version(4).stores({
+    this.version(5).stores({
       meals: '++id, name, createdAt, updatedAt',
       groceryLists: '++id, name, createdAt',
       groceryListStates: '++id, groceryListId',
+      recipes: '++id, mealId',
     });
   }
 }
