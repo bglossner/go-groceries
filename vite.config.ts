@@ -26,8 +26,9 @@ export default defineConfig(({ mode }) => {
         manifest: {
           name: 'Go Groceries',
           short_name: 'Groceries',
-          start_url: '/index.html',
+          start_url: '/',
           description: 'A simple groceries helper app',
+          display: 'standalone',
           theme_color: '#ffffff',
           icons: [
             {
@@ -61,16 +62,23 @@ export default defineConfig(({ mode }) => {
 
   const serverOptions = {
     watch: {
-        usePolling: true,
-      },
-      host: mode === 'pwa',
-      allowedHosts: mode === 'pwa' ? true : undefined,
+      usePolling: true,
+    },
+    port: mode === 'pwa' ? 5174 : undefined,
+    host: mode === 'pwa',
+    allowedHosts: mode === 'pwa' ? true : undefined,
   } satisfies ServerOptions;
 
   return {
     plugins,
     server: {
       ...serverOptions,
-    }
+    },
+    preview: {
+      ...serverOptions,
+    },
+    esbuild: {
+      drop: [],
+    },
   };
 });

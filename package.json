@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "dev:pwa": "vite --host --mode pwa",
+    "preview:pwa": "vite build --mode pwa && vite preview --host --mode pwa",
     "build-and-copy": "npm run build && cp -r dist /mnt/c/Users/bengl/Desktop/temp_projects/ && echo 'Done Copying'"
   },
   "dependencies": {

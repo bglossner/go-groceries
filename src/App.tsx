@@ -7,6 +7,7 @@ import './App.css';
 // Import the generated route tree
 import { routeTree } from './routeTree.gen';
 import { DebugConsole } from './pages/DebugConsole';
+import InstallPWAButton from './components/InstallPWAButton';
 
 // Create a new router instance
 const router = createRouter({ routeTree });
@@ -19,13 +20,15 @@ declare module '@tanstack/react-router' {
 }
 
 const queryClient = new QueryClient();
+const isInstalled = window.matchMedia('(display-mode: standalone)').matches;
 
 const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
-      <ReactQueryDevtools initialIsOpen={false} client={queryClient} />
-      <DebugConsole />
+      {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} client={queryClient} />}
+      {import.meta.env.DEV && <DebugConsole />}
+      {!isInstalled && <InstallPWAButton />}
     </QueryClientProvider>
   );
 };
