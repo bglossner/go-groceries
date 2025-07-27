@@ -63,6 +63,10 @@ const IngredientForm: React.FC<IngredientFormProps> = ({ name, label }) => {
                 fullWidth
                 value={capitalize(field.value || '')}
                 onChange={(e) => field.onChange(e.target.value)}
+                onBlur={(e) => {
+                  field.onChange(e.target.value.trim());
+                  field.onBlur();
+                }}
                 error={!!error || !!ingredientsFormState.errors[name]}
                 helperText={error?.message || ingredientsFormState.errors[name]?.message as string}
               />

@@ -20,6 +20,7 @@ declare module '@tanstack/react-router' {
 }
 
 const queryClient = new QueryClient();
+const isMobile = /Mobi|Android/i.test(navigator.userAgent);
 const isInstalled = window.matchMedia('(display-mode: standalone)').matches;
 
 const App: React.FC = () => {
@@ -27,7 +28,7 @@ const App: React.FC = () => {
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} client={queryClient} />}
-      {import.meta.env.DEV && <DebugConsole />}
+      {isMobile &&import.meta.env.DEV && <DebugConsole />}
       {!isInstalled && <InstallPWAButton />}
     </QueryClientProvider>
   );

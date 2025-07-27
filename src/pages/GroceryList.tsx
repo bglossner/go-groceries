@@ -10,7 +10,7 @@ import { Link } from '@tanstack/react-router';
 import IngredientForm from '../components/IngredientForm';
 
 const groceryListFormSchema = z.object({
-  name: z.string().optional(),
+  name: z.string().optional().transform(name => name?.trim()),
   meals: z.array(z.number()).optional(),
   customIngredients: z.array(ingredientSchema).optional(),
 });
@@ -243,6 +243,10 @@ const GroceryListPage: React.FC = () => {
                     fullWidth
                     error={!!errors.name}
                     helperText={errors.name?.message}
+                    onBlur={(e) => {
+                      field.onChange(e.target.value.trim());
+                      field.onBlur();
+                    }}
                   />
                 )}
               />

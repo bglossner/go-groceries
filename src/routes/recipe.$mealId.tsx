@@ -96,7 +96,11 @@ function RecipeComponent() {
   });
 
   const onSubmit = (data: RecipeForm) => {
-    mutation.mutate(data);
+    mutation.mutate({
+      ...data,
+      url: data.url?.trim(),
+      notes: data.notes?.trim(),
+    });
   };
 
   const handleBack = () => {

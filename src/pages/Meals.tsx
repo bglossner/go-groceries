@@ -10,7 +10,7 @@ import { z } from 'zod';
 import IngredientForm from '../components/IngredientForm';
 
 const mealFormSchema = z.object({
-  name: z.string().min(1, 'Meal name is required'),
+  name: z.string().min(1, 'Meal name is required').transform(name => name.trim()),
   ingredients: z.array(ingredientSchema).transform((ingredients) => {
     return ingredients.filter(ing => ing.name && ing.name.trim() !== '');
   }).refine((ingredients) => ingredients.length > 0, 'Must have at least 1 ingredient')
@@ -102,11 +102,10 @@ const Meals: React.FC = () => {
   };
 
   const onSubmit = (data: MealForm) => {
-    console.log('submit')
     const now = new Date();
     const mealPayload: Meal = {
       id: selectedMeal?.id,
-      name: data.name,
+      name: data.name.trim(),
       ingredients: data.ingredients?.filter(ing => ing.name && ing.name.trim() !== '').map(ing => ({
         name: ing.name!.trim().toLowerCase(),
         quantity: ing.quantity == null ? 1 : Number(ing.quantity!),
@@ -188,6 +187,10 @@ const Meals: React.FC = () => {
                     fullWidth
                     error={!!errors.name}
                     helperText={errors.name?.message}
+                    onBlur={(e) => {
+                      field.onChange(e.target.value.trim());
+                      field.onBlur();
+                    }}
                     required
                   />
                 )}

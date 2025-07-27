@@ -2,7 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import { z } from 'zod';
 
 export const ingredientSchema = z.object({
-  name: z.string().optional().default(''),
+  name: z.string().optional().default('').transform((v) => v?.trim()),
   quantity: z.number().min(1, 'Quantity must be at least 1').optional(),
 });
 
