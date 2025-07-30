@@ -8,7 +8,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useState, useEffect, useRef } from 'react';
 import imageCompression from 'browser-image-compression';
-import { zodResolverLoggerWrapper } from '../util/zod';
 
 const recipeSchema = z.object({
   url: z.string().max(500).optional().or(z.literal('')),
@@ -37,6 +36,7 @@ function RecipeComponent() {
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const initialRecipeExists = useRef<boolean | null>(null);
+  const recipeLookedUp = useRef(false);
 
   const { data: meal } = useQuery<Meal | undefined>({
     queryKey: ['meal', mealId],
@@ -46,18 +46,19 @@ function RecipeComponent() {
   const { data: recipe, isLoading } = useQuery<Recipe | null>({
     queryKey: ['recipe', mealId],
     queryFn: async () => {
-      return (await db.recipes.where('mealId').equals(Number(mealId)).first()) ?? null
+      const recipe = (await db.recipes.where('mealId').equals(Number(mealId)).first()) ?? null;
+      return recipe;
     },
     enabled: !!mealId,
   });
 
   const { control, handleSubmit, reset, formState: { errors } } = useForm<RecipeForm>({
-    resolver: zodResolverLoggerWrapper(recipeSchema),
+    resolver: zodResolver(recipeSchema),
     defaultValues: { url: '', notes: '', images: [] },
   });
 
   useEffect(() => {
-    if (initialRecipeExists.current !== null) {
+    if (initialRecipeExists.current !== null && recipeLookedUp.current) {
       return;
     }
 
@@ -67,11 +68,10 @@ function RecipeComponent() {
       setIsEditMode(false);
     } else {
       reset({ url: '', notes: '', images: [] });
-      initialRecipeExists.current = false;
       setIsEditMode(true);
     }
     setIsDirty(false);
-  }, [recipe, reset]);
+  }, [recipe, isLoading, reset]);
 
   const mutation = useMutation({
     mutationFn: async (formData: RecipeForm) => {

@@ -19,14 +19,17 @@ type GroceryListForm = z.infer<typeof groceryListFormSchema>;
 
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 
-const AggregatedIngredientsDialog: React.FC<{ open: boolean; onClose: () => void; ingredients: { name: string; quantity: number }[] }> = ({ open, onClose, ingredients }) => (
+const AggregatedIngredientsDialog: React.FC<{ open: boolean; onClose: () => void; ingredients: { name: string; quantity: number, sources: string[] }[] }> = ({ open, onClose, ingredients }) => (
   <Dialog open={open} onClose={onClose}>
     <DialogTitle>Aggregated Ingredients</DialogTitle>
     <DialogContent>
       <List>
         {ingredients.map((ing, index) => (
           <ListItem key={index}>
-            <ListItemText primary={`${capitalize(ing.name)}: ${ing.quantity}`} />
+            <ListItemText 
+              primary={`${capitalize(ing.name)}: ${ing.quantity}`}
+              secondary={ing.sources.join(', ')}
+            />
           </ListItem>
         ))}
       </List>
@@ -41,7 +44,7 @@ const GroceryListPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [formOpen, setFormOpen] = useState(false);
   const [selectedList, setSelectedList] = useState<GroceryList | null>(null);
-  const [viewingAggregatedIngredients, setViewingAggregatedIngredients] = useState<{ name: string; quantity: number }[] | null>(null);
+  const [viewingAggregatedIngredients, setViewingAggregatedIngredients] = useState<{ name: string; quantity: number; sources: string[] }[] | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
 
@@ -135,21 +138,29 @@ const GroceryListPage: React.FC = () => {
 
   const handleViewAggregatedClick = (list: GroceryList) => {
     if (!meals) return;
-    const ingredientsMap = new Map<string, number>();
+    const ingredientsMap = new Map<string, { quantity: number, sources: string[] }>();
     list.meals.forEach(mealId => {
       const meal = meals.find(m => m.id === mealId);
       if (meal) {
         meal.ingredients.forEach(ing => {
           const lowerCaseName = ing.name.toLowerCase();
-          ingredientsMap.set(lowerCaseName, (ingredientsMap.get(lowerCaseName) || 0) + (ing.quantity ?? 1));
+          const existing = ingredientsMap.get(lowerCaseName) || { quantity: 0, sources: [] };
+          ingredientsMap.set(lowerCaseName, {
+            quantity: existing.quantity + (ing.quantity ?? 1),
+            sources: [...existing.sources, `${meal.name}: ${ing.quantity ?? 1}`]
+          });
         });
       }
     });
     list.customIngredients?.forEach(ing => {
       const lowerCaseName = ing.name.toLowerCase();
-      ingredientsMap.set(lowerCaseName, (ingredientsMap.get(lowerCaseName) || 0) + (ing.quantity ?? 1));
+      const existing = ingredientsMap.get(lowerCaseName) || { quantity: 0, sources: [] };
+      ingredientsMap.set(lowerCaseName, {
+        quantity: existing.quantity + (ing.quantity ?? 1),
+        sources: [...existing.sources, `Custom: ${ing.quantity ?? 1}`]
+      });
     });
-    const ingredients = Array.from(ingredientsMap.entries()).map(([name, quantity]) => ({ name, quantity }));
+    const ingredients = Array.from(ingredientsMap.entries()).map(([name, { quantity, sources }]) => ({ name, quantity, sources }));
     setViewingAggregatedIngredients(ingredients);
   };
 

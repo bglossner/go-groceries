@@ -45,7 +45,6 @@ const Meals: React.FC = () => {
     resolver: (values, ctx, options) => {
       const resolver = zodResolver(mealFormSchema);
       const resolveValues = resolver(values as MealForm, ctx, options as ResolverOptions<z.input<typeof mealFormSchema>>);
-      console.log(resolveValues);
       return resolveValues;
     },
     defaultValues: {

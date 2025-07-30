@@ -60,21 +60,29 @@ const GoGroceryPage: React.FC = () => {
 
   const aggregatedIngredients = useMemo(() => {
     if (!groceryList || !meals) return [];
-    const ingredientsMap = new Map<string, number>();
+    const ingredientsMap = new Map<string, { quantity: number, sources: string[] }>();
     groceryList.meals.forEach(mealId => {
       const meal = meals.find(m => m.id === mealId);
       if (meal) {
         meal.ingredients.forEach(ing => {
           const lowerCaseName = ing.name.toLowerCase();
-          ingredientsMap.set(lowerCaseName, (ingredientsMap.get(lowerCaseName) || 0) + (ing.quantity ?? 1));
+          const existing = ingredientsMap.get(lowerCaseName) || { quantity: 0, sources: [] };
+          ingredientsMap.set(lowerCaseName, {
+            quantity: existing.quantity + (ing.quantity ?? 1),
+            sources: [...existing.sources, `${meal.name}: ${ing.quantity ?? 1}`]
+          });
         });
       }
     });
     groceryList.customIngredients?.forEach(ing => {
       const lowerCaseName = ing.name.toLowerCase();
-      ingredientsMap.set(lowerCaseName, (ingredientsMap.get(lowerCaseName) || 0) + (ing.quantity ?? 1));
+      const existing = ingredientsMap.get(lowerCaseName) || { quantity: 0, sources: [] };
+      ingredientsMap.set(lowerCaseName, {
+        quantity: existing.quantity + (ing.quantity ?? 1),
+        sources: [...existing.sources, `Custom: ${ing.quantity ?? 1}`]
+      });
     });
-    const ingredients = Array.from(ingredientsMap.entries()).map(([name, quantity]) => ({ name, quantity }));
+    const ingredients = Array.from(ingredientsMap.entries()).map(([name, { quantity, sources }]) => ({ name, quantity, sources }));
     const checked = groceryListState?.checkedIngredients || [];
     return ingredients.sort((a, b) => {
       const aChecked = checked.includes(a.name);
@@ -135,7 +143,10 @@ const GoGroceryPage: React.FC = () => {
                   tabIndex={-1}
                   disableRipple
                 />
-                <ListItemText primary={`${capitalize(ing.name)}: ${ing.quantity}`} />
+                <ListItemText 
+                  primary={`${capitalize(ing.name)}: ${ing.quantity}`}
+                  secondary={ing.sources.join(', ')}
+                />
               </ListItem>
             </React.Fragment>
           );
