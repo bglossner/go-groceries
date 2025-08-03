@@ -4,7 +4,7 @@ import { db, type Meal, ingredientSchema } from '../db/db';
 import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box, Accordion, AccordionSummary, AccordionDetails, Typography } from '@mui/material';
 import { useNavigate } from '@tanstack/react-router';
 import { Edit, Delete, ExpandMore, Restaurant } from '@mui/icons-material';
-import { useForm, Controller, FormProvider, type ResolverOptions } from 'react-hook-form';
+import { useForm, Controller, FormProvider, type ResolverOptions, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import IngredientForm from '../components/IngredientForm';
@@ -43,8 +43,8 @@ const Meals: React.FC = () => {
 
   const methods = useForm<MealForm>({
     resolver: (values, ctx, options) => {
-      const resolver = zodResolver(mealFormSchema);
-      const resolveValues = resolver(values as MealForm, ctx, options as ResolverOptions<z.input<typeof mealFormSchema>>);
+      const resolver = zodResolver(mealFormSchema) as Resolver<MealForm>;
+      const resolveValues = resolver(values as MealForm, ctx, options as ResolverOptions<MealForm>);
       return resolveValues;
     },
     defaultValues: {
@@ -53,7 +53,8 @@ const Meals: React.FC = () => {
     },
   });
 
-  const { control, handleSubmit, reset, formState: { errors } } = methods;
+  const { control, handleSubmit, reset, formState: { errors, isDirty } } = methods;
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
 
   const mutation = useMutation({
     mutationFn: async (meal: Meal) => {
@@ -65,7 +66,10 @@ const Meals: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['meals'] });
-      handleClose();
+      setOpen(false);
+      setSelectedMeal(null);
+      reset();
+      setDiscardConfirmOpen(false);
     },
   });
 
@@ -94,10 +98,25 @@ const Meals: React.FC = () => {
     setOpen(true);
   };
 
-  const handleClose = () => {
-    setOpen(false);
-    setSelectedMeal(null);
-    reset();
+  const handleClose = (event?: object, reason?: "backdropClick" | "escapeKeyDown", discardChanges = false) => {
+    if (!discardChanges && isDirty && (reason === "backdropClick" || reason === "escapeKeyDown")) {
+      setDiscardConfirmOpen(true);
+    } else if (!discardChanges && isDirty && event === undefined) { // This handles the case where handleClose is called without event/reason, e.g., from the Cancel button
+      setDiscardConfirmOpen(true);
+    } else {
+      setOpen(false);
+      setSelectedMeal(null);
+      reset();
+      setDiscardConfirmOpen(false);
+    }
+  };
+
+  const handleDiscardChanges = () => {
+    handleClose(undefined, undefined, true);
+  };
+
+  const handleCancelDiscard = () => {
+    setDiscardConfirmOpen(false);
   };
 
   const onSubmit = (data: MealForm) => {
@@ -212,6 +231,28 @@ const Meals: React.FC = () => {
         <DialogActions>
           <Button onClick={handleCancelDelete}>Go Back</Button>
           <Button onClick={handleConfirmDelete} color="error">Delete</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={discardConfirmOpen} onClose={handleCancelDiscard}>
+        <DialogTitle>Discard Changes?</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to discard any changes?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelDiscard}>Cancel</Button>
+          <Button onClick={handleDiscardChanges} color="error">Discard</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={discardConfirmOpen} onClose={handleCancelDiscard}>
+        <DialogTitle>Discard Changes?</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to discard any changes?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelDiscard}>Cancel</Button>
+          <Button onClick={handleDiscardChanges} color="error">Discard</Button>
         </DialogActions>
       </Dialog>
 

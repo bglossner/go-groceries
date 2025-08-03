@@ -30,28 +30,28 @@ const handleExportNew = async () => {
   exportBlobToFile(file.name, file);
 };
 
-const handleExportOld = async () => {
-  try {
-    const allGroceryLists = await db.groceryLists.toArray();
-    const allMeals = await db.meals.toArray();
-    const allGroceryListStates = await db.groceryListStates.toArray();
-    const allRecipes = await db.recipes.toArray();
+// const handleExportOld = async () => {
+//   try {
+//     const allGroceryLists = await db.groceryLists.toArray();
+//     const allMeals = await db.meals.toArray();
+//     const allGroceryListStates = await db.groceryListStates.toArray();
+//     const allRecipes = await db.recipes.toArray();
 
-    const data = {
-      groceryLists: allGroceryLists,
-      meals: allMeals,
-      groceryListStates: allGroceryListStates,
-      recipes: allRecipes,
-    };
+//     const data = {
+//       groceryLists: allGroceryLists,
+//       meals: allMeals,
+//       groceryListStates: allGroceryListStates,
+//       recipes: allRecipes,
+//     };
 
-    const json = JSON.stringify(data, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    exportBlobToFile(`groceries_backup_${new Date().toISOString()}.json`, blob);
-  } catch (error) {
-    console.error("Error exporting data:", error);
-    alert("Failed to export data. Check console for details.");
-  }
-};
+//     const json = JSON.stringify(data, null, 2);
+//     const blob = new Blob([json], { type: 'application/json' });
+//     exportBlobToFile(`groceries_backup_${new Date().toISOString()}.json`, blob);
+//   } catch (error) {
+//     console.error("Error exporting data:", error);
+//     alert("Failed to export data. Check console for details.");
+//   }
+// };
 
 const deleteDbData = async () => {
   await db.transaction('rw', db.groceryLists, db.meals, db.groceryListStates, db.recipes, async () => {

@@ -6,12 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "build-pwa": "tsc -b && vite build --mode pwa",
+    "build:pwa": "tsc -b && vite build --mode pwa",
+    "build:pwa-test": "tsc -b && vite build --mode pwa-test",
     "lint": "eslint .",
     "preview": "vite preview",
-    "dev:pwa": "vite --host --mode pwa",
+    "dev:pwa": "vite --host --mode pwa-test",
     "preview:pwa": "vite build --mode pwa && vite preview --host --mode pwa",
-    "build-and-copy": "npm run build && cp -r dist /mnt/c/Users/bengl/Desktop/temp_projects/ && echo 'Done Copying'"
+    "preview:pwa-test": "vite build --mode pwa-test && vite preview --host --mode pwa-test",
+    "build-and-copy": "npm run build && cp -r dist /mnt/c/Users/bengl/Desktop/temp_projects/ && echo 'Done Copying'",
+    "upload-assets-to-s3": "node scripts/upload-to-s3.js",
+    "build-and-upload:test": "npm run build:pwa-test && npm run upload-assets-to-s3 -- --bucket go-groceries-test",
+    "build-and-upload:prod": "npm run build:pwa && npm run upload-assets-to-s3 -- --bucket go-groceries"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -48,6 +53,7 @@
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.35.1",
     "vite": "^7.0.3",
-    "vite-plugin-pwa": "^1.0.1"
+    "vite-plugin-pwa": "^1.0.1",
+    "yargs": "^17.7.2"
   }
 }

@@ -1,0 +1,1 @@
+Add a "Discard" and "Cancel" modal on top of the meal create/edit modal when users click off the create/edit modal that would normally close the modal. It should give the message "Are you sure you want to discard any changes?". Only show this new discard modal if there are changes to the form.

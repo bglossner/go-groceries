@@ -6,8 +6,10 @@ import { VitePWA } from 'vite-plugin-pwa'
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const plugins = [react(), TanStackRouterVite()];
+  const isPwaMode = mode === 'pwa' || mode === 'pwa-test';
+  const isPwaTestMode = mode === 'pwa-test';
 
-  if (mode === 'pwa') {
+  if (isPwaMode) {
     console.log('PWA mode activated!');
     plugins.push(
       VitePWA({
@@ -24,8 +26,8 @@ export default defineConfig(({ mode }) => {
         },
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
         manifest: {
-          name: 'Go Groceries',
-          short_name: 'Groceries',
+          name: 'Go Groceries' + (isPwaTestMode ? ' (Test)' : ''),
+          short_name: 'Groceries' + (isPwaTestMode ? ' (Test)' : ''),
           start_url: '/',
           description: 'A simple groceries helper app',
           display: 'standalone',
@@ -47,7 +49,7 @@ export default defineConfig(({ mode }) => {
             sizes: '399x370',
             type: 'image/png',
             form_factor: "narrow",
-            label: "Go Groceries",
+            label: "Go Groceries" + (isPwaTestMode ? ' (Test)' : ''),
             platform: 'android'
           }],
         },
@@ -64,9 +66,9 @@ export default defineConfig(({ mode }) => {
     watch: {
       usePolling: true,
     },
-    port: mode === 'pwa' ? 5174 : undefined,
-    host: mode === 'pwa',
-    allowedHosts: mode === 'pwa' ? true : undefined,
+    port: isPwaMode ? 5174 : undefined,
+    host: isPwaMode,
+    allowedHosts: isPwaMode ? true : undefined,
   } satisfies ServerOptions;
 
   return {
