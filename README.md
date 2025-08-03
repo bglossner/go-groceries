@@ -1,3 +1,24 @@
+# Go Groceries
+
+GitHub: https://github.com/bglossner/go-groceries
+
+# Test Workflow
+
+Serve dev build locally:
+```
+npm run dev
+```
+
+Serve dev PWA build locally:
+```
+npm run dev:pwa
+```
+
+Build, Deploy and test:
+```
+npm run build-and-upload:test
+```
+
 # Getting the webiste
 
 ## Upload to S3 Bucket

@@ -47,6 +47,7 @@ const GroceryListPage: React.FC = () => {
   const [viewingAggregatedIngredients, setViewingAggregatedIngredients] = useState<{ name: string; quantity: number; sources: string[] }[] | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
 
   const { data: groceryLists } = useQuery({
     queryKey: ['groceryLists'],
@@ -67,7 +68,7 @@ const GroceryListPage: React.FC = () => {
     },
   });
 
-  const { control, handleSubmit, reset, watch } = methods;
+  const { control, handleSubmit, reset, watch, formState: { isDirty } } = methods;
 
   const watchedMeals = watch("meals", []);
   const watchedCustomIngredients = watch("customIngredients");
@@ -87,7 +88,10 @@ const GroceryListPage: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groceryLists'] });
-      handleFormClose();
+      setFormOpen(false);
+      setSelectedList(null);
+      reset();
+      setDiscardConfirmOpen(false);
     },
   });
 
@@ -118,10 +122,15 @@ const GroceryListPage: React.FC = () => {
     setFormOpen(true);
   };
 
-  const handleFormClose = () => {
-    setFormOpen(false);
-    setSelectedList(null);
-    reset();
+  const handleFormClose = (discardChanges = false) => {
+    if (isDirty && !discardChanges) {
+      setDiscardConfirmOpen(true);
+    } else {
+      setFormOpen(false);
+      setSelectedList(null);
+      reset();
+      setDiscardConfirmOpen(false);
+    }
   };
 
   const onSubmit = (data: GroceryListForm) => {
@@ -236,7 +245,11 @@ const GroceryListPage: React.FC = () => {
         ))}
       </List>
 
-      <Dialog open={formOpen} onClose={handleFormClose}>
+      <Dialog open={formOpen} onClose={(_event, reason) => {
+        if (reason === 'backdropClick' || reason === 'escapeKeyDown') {
+          handleFormClose();
+        }
+      }}>
         <DialogTitle>{selectedList ? 'Edit Grocery List' : 'Create New Grocery List'}</DialogTitle>
         <FormProvider {...methods}>
           <form onSubmit={handleSubmit(onSubmit)}>
@@ -292,7 +305,7 @@ const GroceryListPage: React.FC = () => {
             </Typography>
           </DialogContent>
             <DialogActions>
-              <Button onClick={handleFormClose}>Cancel</Button>
+              <Button onClick={() => handleFormClose()}>Cancel</Button>
               <Button type="submit">{selectedList ? 'Save' : 'Create'}</Button>
             </DialogActions>
           </form>
@@ -308,6 +321,17 @@ const GroceryListPage: React.FC = () => {
         <DialogActions>
           <Button onClick={handleCancelDelete}>Go Back</Button>
           <Button onClick={handleConfirmDelete} color="error">Delete</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={discardConfirmOpen} onClose={() => setDiscardConfirmOpen(false)}>
+        <DialogTitle>Discard Changes?</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to discard any changes?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDiscardConfirmOpen(false)}>Cancel</Button>
+          <Button onClick={() => handleFormClose(true)} color="error">Discard</Button>
         </DialogActions>
       </Dialog>
 

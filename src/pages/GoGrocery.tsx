@@ -117,12 +117,13 @@ const GoGroceryPage: React.FC = () => {
   const checkedCount = groceryListState?.checkedIngredients?.length || 0;
   const uncheckedCount = aggregatedIngredients.length - checkedCount;
   const allItemsChecked = uncheckedCount === 0 && aggregatedIngredients.length > 0;
+  const hasChanges = checkedCount > 0;
 
   return (
     <div>
       <Typography variant="h4">{groceryList.name}</Typography>
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-        <Button onClick={handleResetClick} variant="outlined">Reset</Button>
+        {hasChanges && <Button onClick={handleResetClick} variant="outlined">Reset</Button>}
       </Box>
       {allItemsChecked && (
         <Typography variant="h5" sx={{ textAlign: 'center', my: 4 }}>
@@ -155,13 +156,13 @@ const GoGroceryPage: React.FC = () => {
       </List>
 
       <Dialog open={resetConfirmOpen} onClose={handleCancelReset}>
-        <DialogTitle>Confirm Reset</DialogTitle>
+        <DialogTitle>Discard Changes?</DialogTitle>
         <DialogContent>
-          <Typography>Are you sure you want to reset this grocery list?</Typography>
+          <Typography>Are you sure you want to discard any changes?</Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCancelReset}>Go Back</Button>
-          <Button onClick={handleConfirmReset} color="error">Reset</Button>
+          <Button onClick={handleCancelReset}>Cancel</Button>
+          <Button onClick={handleConfirmReset} color="error">Discard</Button>
         </DialogActions>
       </Dialog>
     </div>
