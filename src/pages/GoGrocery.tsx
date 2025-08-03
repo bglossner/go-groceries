@@ -143,7 +143,8 @@ const GoGroceryPage: React.FC = () => {
                   tabIndex={-1}
                   disableRipple
                 />
-                <ListItemText 
+                <ListItemText
+                  sx={{ margin: 0 }}
                   primary={`${capitalize(ing.name)}: ${ing.quantity}`}
                   secondary={ing.sources.join(', ')}
                 />

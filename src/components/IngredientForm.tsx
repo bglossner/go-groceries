@@ -82,7 +82,7 @@ const IngredientForm: React.FC<IngredientFormProps> = ({ name, label }) => {
                 label="Quantity"
                 type="number"
                 fullWidth
-                onChange={(e) => field.onChange(e.target.value === '' ? undefined : parseInt(e.target.value, 10))}
+                onChange={(e) => { field.onChange(e.target.value === '' ? '' : parseInt(e.target.value, 10)) }}
                 error={!!error}
                 helperText={error?.message}
               />

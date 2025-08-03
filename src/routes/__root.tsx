@@ -7,7 +7,9 @@ export const Route = createRootRoute({
       <AppBar position="static">
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ textAlign: 'left' }}>
-            Go Groceries
+            <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>
+              Go Groceries
+            </Link>
           </Typography>
           <Box sx={{ flexGrow: 1 }} />
           <Button color="inherit" component={Link} to="/">
