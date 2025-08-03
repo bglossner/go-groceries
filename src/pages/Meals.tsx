@@ -29,6 +29,7 @@ const Meals: React.FC = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
   const navigate = useNavigate();
+  const [searchTerm, setSearchTerm] = useState('');
 
   const { data: meals } = useQuery({
     queryKey: ['meals'],
@@ -169,8 +170,18 @@ const Meals: React.FC = () => {
 
   return (
     <div>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+        <TextField
+          label="Search Meals"
+          variant="outlined"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          sx={{ flexGrow: 1, mr: 1 }}
+        />
+        <Button onClick={() => setSearchTerm('')} variant="outlined">Clear</Button>
+      </Box>
       <List>
-        {meals?.map((meal) => (
+        {meals?.filter(meal => meal.name.toLowerCase().includes(searchTerm.toLowerCase())).map((meal) => (
           <Accordion key={meal.id}>
             <AccordionSummary expandIcon={<ExpandMore />}>
               <ListItemText

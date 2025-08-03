@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type GroceryList, type Meal, type GroceryListState } from '../db/db';
-import { List, ListItem, ListItemText, Checkbox, Typography, Button, Divider, Box, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import { List, ListItem, ListItemText, Checkbox, Typography, Button, Divider, Box, Dialog, DialogTitle, DialogContent, DialogActions, TextField } from '@mui/material';
 import { useSearch } from '@tanstack/react-router';
 import { z } from 'zod';
 
@@ -15,6 +15,7 @@ const GoGroceryPage: React.FC = () => {
   const queryClient = useQueryClient();
   const search = useSearch({ from: '/go-grocery' });
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const validatedSearch = groceryListSearchSchema.safeParse(search);
 
@@ -102,6 +103,7 @@ const GoGroceryPage: React.FC = () => {
     const checked = groceryListState?.checkedIngredients || [];
     const newChecked = checked.includes(ingredientName) ? checked.filter(i => i !== ingredientName) : [...checked, ingredientName];
     mutation.mutate(newChecked);
+    setSearchTerm('');
   };
 
   const handleResetClick = () => {
@@ -131,13 +133,23 @@ const GoGroceryPage: React.FC = () => {
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
         {hasChanges && <Button onClick={handleResetClick} variant="outlined">Reset</Button>}
       </Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+        <TextField
+          label="Search Ingredients"
+          variant="outlined"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          sx={{ flexGrow: 1, mr: 1 }}
+        />
+        <Button onClick={() => setSearchTerm('')} variant="outlined">Clear</Button>
+      </Box>
       {allItemsChecked && (
         <Typography variant="h5" sx={{ textAlign: 'center', my: 4 }}>
           Congratulations! You've got all your groceries.
         </Typography>
       )}
       <List>
-        {aggregatedIngredients.map((ing, index) => {
+        {aggregatedIngredients.filter(ing => ing.name.toLowerCase().includes(searchTerm.toLowerCase())).map((ing, index) => {
           const isChecked = groceryListState?.checkedIngredients?.includes(ing.name) || false;
           const showDivider = isChecked && index === uncheckedCount;
           return (

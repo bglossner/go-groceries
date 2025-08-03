@@ -48,6 +48,7 @@ const GroceryListPage: React.FC = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  const [mealSearchTerm, setMealSearchTerm] = useState('');
 
   const { data: groceryLists } = useQuery({
     queryKey: ['groceryLists'],
@@ -283,17 +284,28 @@ const GroceryListPage: React.FC = () => {
                 )}
               />
               <Typography variant="h6" sx={{ mt: 2 }}>Select Meals</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <TextField
+                  label="Search Meals"
+                  variant="outlined"
+                  value={mealSearchTerm}
+                  onChange={(e) => setMealSearchTerm(e.target.value)}
+                  sx={{ flexGrow: 1, mr: 1 }}
+                />
+                <Button onClick={() => setMealSearchTerm('')} variant="outlined">Clear</Button>
+              </Box>
               <Controller
                 name="meals"
                 control={control}
                 render={({ field }) => (
                   <List>
-                    {meals?.map(meal => (
+                    {meals?.filter(meal => meal.name.toLowerCase().includes(mealSearchTerm.toLowerCase())).map(meal => (
                       <ListItem key={meal.id} dense component="div" onClick={() => {
                         const newMeals = field.value?.includes(meal.id!) ?
                           field.value.filter((id: number) => id !== meal.id!) :
                           [...(field.value || []), meal.id!];
                         field.onChange(newMeals);
+                        setMealSearchTerm('');
                       }}>
                         <Checkbox
                           edge="start"
