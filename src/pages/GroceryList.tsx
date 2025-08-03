@@ -56,7 +56,15 @@ const GroceryListPage: React.FC = () => {
 
   const { data: meals } = useQuery<Meal[]>({
     queryKey: ['meals'],
-    queryFn: () => db.meals.toArray(),
+    queryFn: async () => {
+      const allMeals = await db.meals.toArray();
+      allMeals.sort((a, b) => {
+        if (a.name.toLowerCase() < b.name.toLowerCase()) return -1;
+        if (a.name.toLowerCase() > b.name.toLowerCase()) return 1;
+        return 0;
+      });
+      return allMeals;
+    },
   });
 
   const methods = useForm<GroceryListForm>({

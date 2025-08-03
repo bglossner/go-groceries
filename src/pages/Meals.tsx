@@ -20,6 +20,8 @@ type MealForm = z.infer<typeof mealFormSchema>;
 
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 
+const sessionStartTime = new Date();
+
 const Meals: React.FC = () => {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -36,7 +38,22 @@ const Meals: React.FC = () => {
         ...meal,
         updatedAt: new Date(meal.updatedAt || meal.createdAt || new Date()),
       }));
-      mappedWithDate.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+      mappedWithDate.sort((a, b) => {
+        const aIsNew = a.createdAt >= sessionStartTime;
+        const bIsNew = b.createdAt >= sessionStartTime;
+
+        if (aIsNew && !bIsNew) return -1;
+        if (!aIsNew && bIsNew) return 1;
+
+        if (aIsNew && bIsNew) {
+          return b.createdAt.getTime() - a.createdAt.getTime();
+        }
+
+        if (a.name.toLowerCase() < b.name.toLowerCase()) return -1;
+        if (a.name.toLowerCase() > b.name.toLowerCase()) return 1;
+
+        return 0;
+      });
       return mappedWithDate;
     },
   });

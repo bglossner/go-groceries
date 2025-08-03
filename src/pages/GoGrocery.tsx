@@ -87,8 +87,14 @@ const GoGroceryPage: React.FC = () => {
     return ingredients.sort((a, b) => {
       const aChecked = checked.includes(a.name);
       const bChecked = checked.includes(b.name);
-      if (aChecked === bChecked) return 0;
-      return aChecked ? 1 : -1;
+
+      if (aChecked && !bChecked) return 1;
+      if (!aChecked && bChecked) return -1;
+
+      if (a.name.toLowerCase() < b.name.toLowerCase()) return -1;
+      if (a.name.toLowerCase() > b.name.toLowerCase()) return 1;
+
+      return 0;
     });
   }, [groceryList, meals, groceryListState]);
 
