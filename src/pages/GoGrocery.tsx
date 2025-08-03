@@ -137,12 +137,13 @@ const GoGroceryPage: React.FC = () => {
           return (
             <React.Fragment key={index}>
               {showDivider && <Divider sx={{ my: 1 }} />}
-              <ListItem onClick={() => handleToggle(ing.name)}>
+              <ListItem>
                 <Checkbox
                   edge="start"
                   checked={isChecked}
                   tabIndex={-1}
                   disableRipple
+                  onClick={() => handleToggle(ing.name)}
                 />
                 <ListItemText
                   sx={{ margin: 0 }}
