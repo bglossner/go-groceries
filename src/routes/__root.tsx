@@ -4,7 +4,7 @@ import { AppBar, Toolbar, Typography, Container, Button, Box } from '@mui/materi
 export const Route = createRootRoute({
   component: () => (
     <>
-      <AppBar position="static">
+      <AppBar position="fixed">
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ textAlign: 'left' }}>
             <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>
@@ -12,9 +12,6 @@ export const Route = createRootRoute({
             </Link>
           </Typography>
           <Box sx={{ flexGrow: 1 }} />
-          <Button color="inherit" component={Link} to="/">
-            Home
-          </Button>
           <Button color="inherit" component={Link} to="/meals">
             Meals
           </Button>
@@ -23,6 +20,7 @@ export const Route = createRootRoute({
           </Button>
         </Toolbar>
       </AppBar>
+      <Toolbar />
       <Container sx={{ mt: 2 }}>
         <Outlet />
       </Container>

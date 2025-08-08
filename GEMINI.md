@@ -46,12 +46,14 @@ Examples:
 * Follow project conventions and existing patterns
 * Ask before introducing new libraries or tools
 * Use clean, modular code
+* After any file changes, re-run the build via `npm run build` and fix any errors until the build passes.
 
 ## ❌ Don’t
 
 * Comment everything
 * Make assumptions about deployment or server behavior
 * Push directly to main branches
+* NEVER install any packages via `npm install` without asking me for EACH one
 
 ---
 
