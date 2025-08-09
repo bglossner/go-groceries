@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type Meal, ingredientSchema, type Tag } from '../db/db';
-import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box, Accordion, AccordionSummary, AccordionDetails, Typography, Chip, Autocomplete, createFilterOptions, Container } from '@mui/material';
+import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box, Accordion, AccordionSummary, AccordionDetails, Typography, Chip, Autocomplete, createFilterOptions, Container, DialogContentText, Checkbox, ListItemButton, ListItemIcon } from '@mui/material';
 import { useNavigate } from '@tanstack/react-router';
-import { Edit, Delete, ExpandMore, Restaurant } from '@mui/icons-material';
+import { Edit, Delete, ExpandMore, Restaurant, FilterList } from '@mui/icons-material';
 import { useForm, Controller, FormProvider, type ResolverOptions, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -33,6 +33,22 @@ const Meals: React.FC = () => {
   const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterDialogOpen, setFilterDialogOpen] = useState(false);
+  const [selectedFilterTags, setSelectedFilterTags] = useState<Tag[]>([]);
+
+  const handleFilterDialogOpen = () => {
+    setFilterDialogOpen(true);
+  };
+
+  const handleFilterDialogClose = () => {
+    setFilterDialogOpen(false);
+  };
+
+  const handleToggleFilterTag = (tag: Tag) => {
+    setSelectedFilterTags(prev =>
+      prev.some(t => t.id === tag.id) ? prev.filter(t => t.id !== tag.id) : [...prev, tag]
+    );
+  };
 
   const { data: meals } = useQuery({
     queryKey: ['meals'],
@@ -209,17 +225,44 @@ const Meals: React.FC = () => {
           onChange={(e) => setSearchTerm(e.target.value)}
           sx={{ flexGrow: 1, mr: 1 }}
         />
-        <Button onClick={() => setSearchTerm('')} variant="outlined">Clear</Button>
+        <IconButton onClick={handleFilterDialogOpen}>
+          <FilterList />
+        </IconButton>
+        <Button onClick={() => {
+          setSearchTerm('');
+          setSelectedFilterTags([]);
+        }} variant="outlined">Clear</Button>
+      </Box>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 2 }}>
+        {selectedFilterTags.map(tag => (
+          <Chip
+            key={tag.id}
+            label={tag.name}
+            onDelete={() => handleToggleFilterTag(tag)}
+            color="primary"
+          />
+        ))}
       </Box>
       <List>
-        {meals?.filter(meal => meal.name.toLowerCase().includes(searchTerm.toLowerCase())).map((meal) => (
+        {meals?.filter(meal => {
+          const matchesSearch = meal.name.toLowerCase().includes(searchTerm.toLowerCase());
+          const matchesTags = selectedFilterTags.every(filterTag => meal.tags?.includes(filterTag.id!));
+          return matchesSearch && matchesTags;
+        }).map((meal) => (
           <Accordion key={meal.id}>
             <AccordionSummary expandIcon={<ExpandMore />}>
-              <ListItemText
-                primary={meal.name}
-                secondary={`Created: ${meal.createdAt ? new Date(meal.createdAt).toLocaleString() : 'N/A'} - Updated: ${meal.updatedAt ? new Date(meal.updatedAt).toLocaleString() : 'N/A'
-                  }`}
-              />
+              <Box sx={{ width: '100%' }}>
+                <Typography variant="h6">{meal.name}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {`Created: ${meal.createdAt ? new Date(meal.createdAt).toLocaleString() : 'N/A'} - Updated: ${meal.updatedAt ? new Date(meal.updatedAt).toLocaleString() : 'N/A'}`}
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                  {meal.tags?.map(tagId => {
+                    const tag = tags?.find(t => t.id === tagId);
+                    return tag ? <Chip key={tag.id} label={tag.name} size="small" /> : null;
+                  })}
+                </Box>
+              </Box>
             </AccordionSummary>
             <AccordionDetails>
               <Box>
@@ -353,6 +396,36 @@ const Meals: React.FC = () => {
             </DialogActions>
           </form>
         </FormProvider>
+      </Dialog>
+
+      <Dialog open={filterDialogOpen} onClose={handleFilterDialogClose}>
+        <DialogTitle>Filter by Tags</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Select tags to filter meals by. Only meals with all selected tags will be shown.
+          </DialogContentText>
+          <List>
+            {tags?.slice().sort((a, b) => a.name.localeCompare(b.name)).map(tag => (
+              <ListItem key={tag.id} disablePadding>
+                <ListItemButton onClick={() => handleToggleFilterTag(tag)} dense>
+                  <ListItemIcon>
+                    <Checkbox
+                      edge="start"
+                      checked={selectedFilterTags.some(t => t.id === tag.id)}
+                      tabIndex={-1}
+                      disableRipple
+                    />
+                  </ListItemIcon>
+                  <ListItemText primary={tag.name} />
+                </ListItemButton>
+              </ListItem>
+            ))}
+          </List>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSelectedFilterTags([])}>Clear</Button>
+          <Button onClick={handleFilterDialogClose}>Close</Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog open={deleteConfirmOpen} onClose={handleCancelDelete}>
