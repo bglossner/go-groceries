@@ -11,6 +11,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as RecipeMealIdRouteImport } from './routes/recipe.$mealId'
 
 const MealsLazyRouteImport = createFileRoute('/meals')()
@@ -33,6 +34,11 @@ const GoGroceryLazyRoute = GoGroceryLazyRouteImport.update({
   path: '/go-grocery',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/go-grocery.lazy').then((d) => d.Route))
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexLazyRoute = IndexLazyRouteImport.update({
   id: '/',
   path: '/',
@@ -46,6 +52,7 @@ const RecipeMealIdRoute = RecipeMealIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexLazyRoute
+  '/settings': typeof SettingsRoute
   '/go-grocery': typeof GoGroceryLazyRoute
   '/grocery-list': typeof GroceryListLazyRoute
   '/meals': typeof MealsLazyRoute
@@ -53,6 +60,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexLazyRoute
+  '/settings': typeof SettingsRoute
   '/go-grocery': typeof GoGroceryLazyRoute
   '/grocery-list': typeof GroceryListLazyRoute
   '/meals': typeof MealsLazyRoute
@@ -61,6 +69,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexLazyRoute
+  '/settings': typeof SettingsRoute
   '/go-grocery': typeof GoGroceryLazyRoute
   '/grocery-list': typeof GroceryListLazyRoute
   '/meals': typeof MealsLazyRoute
@@ -70,15 +79,23 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/settings'
     | '/go-grocery'
     | '/grocery-list'
     | '/meals'
     | '/recipe/$mealId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/go-grocery' | '/grocery-list' | '/meals' | '/recipe/$mealId'
+  to:
+    | '/'
+    | '/settings'
+    | '/go-grocery'
+    | '/grocery-list'
+    | '/meals'
+    | '/recipe/$mealId'
   id:
     | '__root__'
     | '/'
+    | '/settings'
     | '/go-grocery'
     | '/grocery-list'
     | '/meals'
@@ -87,6 +104,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexLazyRoute: typeof IndexLazyRoute
+  SettingsRoute: typeof SettingsRoute
   GoGroceryLazyRoute: typeof GoGroceryLazyRoute
   GroceryListLazyRoute: typeof GroceryListLazyRoute
   MealsLazyRoute: typeof MealsLazyRoute
@@ -116,6 +134,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GoGroceryLazyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -135,6 +160,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexLazyRoute: IndexLazyRoute,
+  SettingsRoute: SettingsRoute,
   GoGroceryLazyRoute: GoGroceryLazyRoute,
   GroceryListLazyRoute: GroceryListLazyRoute,
   MealsLazyRoute: MealsLazyRoute,
