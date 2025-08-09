@@ -68,6 +68,11 @@ const GroceryListPage: React.FC = () => {
     },
   });
 
+  const { data: customIngredients } = useQuery({
+    queryKey: ['customIngredients'],
+    queryFn: () => db.customIngredients.toArray(),
+  });
+
   const methods = useForm<GroceryListForm>({
     resolver: zodResolver(groceryListFormSchema) as any,
     defaultValues: {
@@ -84,6 +89,44 @@ const GroceryListPage: React.FC = () => {
 
   const mutation = useMutation({
     mutationFn: async (list: Partial<GroceryList>) => {
+      const customIngredientsToSave = list.customIngredients?.filter(ing => ing.name && ing.name.trim() !== '') || [];
+      
+      const previousCustomIngredients = selectedList?.customIngredients || [];
+      const previousIngredientNames = new Set(previousCustomIngredients.map(ing => ing.name!.toLowerCase()));
+      const currentIngredientNames = new Set(customIngredientsToSave.map(ing => ing.name!.toLowerCase()));
+
+      // Handle increments for newly added ingredients
+      if (customIngredientsToSave.length > 0) {
+        const existingIngredients = await db.customIngredients.toArray();
+        const existingIngredientNames = new Set(existingIngredients.map(i => i.name.toLowerCase()));
+        
+        for (const newIng of customIngredientsToSave) {
+          const lowerCaseName = newIng.name!.toLowerCase();
+          if (!existingIngredientNames.has(lowerCaseName)) {
+            // New custom ingredient, add to db with usageCount = 1
+            await db.customIngredients.add({ name: lowerCaseName, usageCount: 1 });
+          } else if (!previousIngredientNames.has(lowerCaseName)) {
+            // Existing custom ingredient, but newly added to this grocery list
+            const existing = await db.customIngredients.where('name').equalsIgnoreCase(lowerCaseName).first();
+            if (existing) {
+              await db.customIngredients.put({ ...existing, usageCount: (existing.usageCount || 0) + 1 });
+            }
+          }
+        }
+      }
+
+      // Handle decrements for removed ingredients
+      for (const oldIng of previousCustomIngredients) {
+        const lowerCaseName = oldIng.name!.toLowerCase();
+        if (!currentIngredientNames.has(lowerCaseName)) {
+          // Ingredient was in the previous list but is not in the current list
+          const existing = await db.customIngredients.where('name').equalsIgnoreCase(lowerCaseName).first();
+          if (existing) {
+            await db.customIngredients.put({ ...existing, usageCount: Math.max(0, (existing.usageCount || 0) - 1) });
+          }
+        }
+      }
+
       if (selectedList) {
         return db.groceryLists.put({ ...selectedList, ...list });
       } else {
@@ -97,6 +140,7 @@ const GroceryListPage: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groceryLists'] });
+      queryClient.invalidateQueries({ queryKey: ['customIngredients'] });
       setFormOpen(false);
       setSelectedList(null);
       reset();
@@ -258,7 +302,7 @@ const GroceryListPage: React.FC = () => {
         if (reason === 'backdropClick' || reason === 'escapeKeyDown') {
           handleFormClose();
         }
-      }}>
+      }} sx={{ '& .MuiDialog-paper': { minWidth: '33%' } }}>
         <DialogTitle>{selectedList ? 'Edit Grocery List' : 'Create New Grocery List'}</DialogTitle>
         <FormProvider {...methods}>
           <form onSubmit={handleSubmit(onSubmit)}>
@@ -319,7 +363,7 @@ const GroceryListPage: React.FC = () => {
                   </List>
                 )}
               />
-              <IngredientForm name="customIngredients" label="Custom Ingredients" />
+              <IngredientForm name="customIngredients" label="Custom Ingredients" customIngredients={customIngredients} enableAutocomplete />
               <Typography variant="subtitle1" sx={{ mt: 2 }}>
               Total Aggregated Ingredients: {formAggregatedIngredientsCount}
             </Typography>

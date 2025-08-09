@@ -21,7 +21,7 @@ type MealForm = z.infer<typeof mealFormSchema>;
 
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 
-const filter = createFilterOptions<Tag>();
+const filter = createFilterOptions<Tag>({ limit: 5 });
 
 const sessionStartTime = new Date();
 
@@ -326,7 +326,7 @@ const Meals: React.FC = () => {
                   />
                 )}
               />
-              <IngredientForm name="ingredients" label="Ingredients" />
+              <IngredientForm name="ingredients" label="Ingredients" enableAutocomplete={false} />
               <Controller
                 name="tags"
                 control={control}
