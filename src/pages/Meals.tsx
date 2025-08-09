@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { db, type Meal, ingredientSchema } from '../db/db';
-import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box, Accordion, AccordionSummary, AccordionDetails, Typography } from '@mui/material';
+import { db, type Meal, ingredientSchema, type Tag } from '../db/db';
+import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box, Accordion, AccordionSummary, AccordionDetails, Typography, Chip, Autocomplete, createFilterOptions, Container } from '@mui/material';
 import { useNavigate } from '@tanstack/react-router';
 import { Edit, Delete, ExpandMore, Restaurant } from '@mui/icons-material';
 import { useForm, Controller, FormProvider, type ResolverOptions, type Resolver } from 'react-hook-form';
@@ -13,12 +13,15 @@ const mealFormSchema = z.object({
   name: z.string().min(1, 'Meal name is required').transform(name => name.trim()),
   ingredients: z.array(ingredientSchema).transform((ingredients) => {
     return ingredients.filter(ing => ing.name && ing.name.trim() !== '');
-  }).refine((ingredients) => ingredients.length > 0, 'Must have at least 1 ingredient')
+  }).refine((ingredients) => ingredients.length > 0, 'Must have at least 1 ingredient'),
+  tags: z.array(z.object({ id: z.number().optional(), name: z.string() })).optional(),
 });
 
 type MealForm = z.infer<typeof mealFormSchema>;
 
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
+
+const filter = createFilterOptions<Tag>();
 
 const sessionStartTime = new Date();
 
@@ -59,6 +62,11 @@ const Meals: React.FC = () => {
     },
   });
 
+  const { data: tags } = useQuery<Tag[]>({
+    queryKey: ['tags'],
+    queryFn: () => db.tags.toArray(),
+  });
+
   const methods = useForm<MealForm>({
     resolver: (values, ctx, options) => {
       const resolver = zodResolver(mealFormSchema) as Resolver<MealForm>;
@@ -68,6 +76,7 @@ const Meals: React.FC = () => {
     defaultValues: {
       name: '',
       ingredients: [{ name: '', quantity: undefined }],
+      tags: [],
     },
   });
 
@@ -84,10 +93,12 @@ const Meals: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['meals'] });
+      queryClient.invalidateQueries({ queryKey: ['tags'] });
       setOpen(false);
       setSelectedMeal(null);
       reset();
       setDiscardConfirmOpen(false);
+      window.scrollTo(0, 0);
     },
   });
 
@@ -100,17 +111,20 @@ const Meals: React.FC = () => {
     },
   });
 
-  const handleClickOpen = (meal: Meal | null = null) => {
+  const handleClickOpen = async (meal: Meal | null = null) => {
     setSelectedMeal(meal);
     if (meal) {
+      const mealTags = meal.tags ? await db.tags.bulkGet(meal.tags) : [];
       reset({
         name: meal.name,
-        ingredients: meal.ingredients.map(ing => ({ name: ing.name, quantity: ing.quantity }))
+        ingredients: meal.ingredients.map(ing => ({ name: ing.name, quantity: ing.quantity })),
+        tags: mealTags.filter(tag => tag !== undefined) as Tag[],
       });
     } else {
       reset({
         name: '',
         ingredients: [{ name: '', quantity: undefined }],
+        tags: [],
       });
     }
     setOpen(true);
@@ -137,8 +151,24 @@ const Meals: React.FC = () => {
     setDiscardConfirmOpen(false);
   };
 
-  const onSubmit = (data: MealForm) => {
+  const onSubmit = async (data: MealForm) => {
     const now = new Date();
+
+    const uniqueTags = new Map<string, Tag>();
+    for (const tag of data.tags || []) {
+      const processedTagName = (typeof tag === 'string' ? tag : tag.name).trim().toLowerCase();
+      if (!uniqueTags.has(processedTagName)) {
+        uniqueTags.set(processedTagName, { ...tag, name: processedTagName });
+      }
+    }
+
+    const tagIds = await Promise.all(Array.from(uniqueTags.values()).map(async (tag) => {
+      if (tag.id) return tag.id;
+      const existingTag = await db.tags.where('name').equalsIgnoreCase(tag.name).first();
+      if (existingTag) return existingTag.id!;
+      return db.tags.add({ name: tag.name });
+    }));
+
     const mealPayload: Meal = {
       id: selectedMeal?.id,
       name: data.name.trim(),
@@ -146,6 +176,7 @@ const Meals: React.FC = () => {
         name: ing.name!.trim().toLowerCase(),
         quantity: ing.quantity == null ? 1 : Number(ing.quantity!),
       })) || [],
+      tags: tagIds.filter(id => id !== undefined) as number[] || [],
       createdAt: selectedMeal?.createdAt || now,
       updatedAt: now,
     };
@@ -209,6 +240,17 @@ const Meals: React.FC = () => {
                     </ListItem>
                   ))}
                 </List>
+                {meal.tags && meal.tags.length > 0 && (
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="h6">Tags:</Typography>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {meal.tags.map(tagId => {
+                          const tag = tags?.find(t => t.id === tagId);
+                          return tag ? <Chip color="primary" key={tag.id} label={tag.name} /> : null;
+                        })}
+                      </Box>
+                    </Box>
+                  )}
               </Box>
             </AccordionDetails>
           </Accordion>
@@ -242,6 +284,68 @@ const Meals: React.FC = () => {
                 )}
               />
               <IngredientForm name="ingredients" label="Ingredients" />
+              <Controller
+                name="tags"
+                control={control}
+                render={({ field }) => (
+                  <Autocomplete
+                    {...field}
+                    multiple
+                    freeSolo
+                    options={(tags || []).filter(tag => !field.value?.some(selectedTag => selectedTag.name === tag.name))}
+                    getOptionLabel={(option) => {
+                      if (typeof option === 'string') {
+                        return capitalize(option);
+                      }
+                      return capitalize(option.name);
+                    }}
+                    filterOptions={(options, params) => {
+                      const filtered = filter(options, params);
+                      if (params.inputValue !== '') {
+                        filtered.push({
+                          id: undefined,
+                          name: `Add "${capitalize(params.inputValue)}"`,
+                        });
+                      }
+                      return filtered;
+                    }}
+                    value={field.value || []}
+                    onChange={(_, newValue) => {
+                      const uniqueTags = new Map<string, { name: string }>();
+                      newValue.forEach(option => {
+                          let processedTagName: string;
+                          if (typeof option === 'string') {
+                              processedTagName = option.trim().toLowerCase();
+                          } else if (option.name.startsWith('Add "') && option.name.endsWith('"')) {
+                              processedTagName = option.name.substring(5, option.name.length - 1).trim().toLowerCase();
+                          } else {
+                              processedTagName = option.name.trim().toLowerCase();
+                          }
+
+                          if (!uniqueTags.has(processedTagName)) {
+                              uniqueTags.set(processedTagName, { name: processedTagName });
+                          }
+                      });
+                      field.onChange(Array.from(uniqueTags.values()));
+                    }}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        variant="outlined"
+                        label="Tags"
+                        placeholder="Add tags"
+                        margin="dense"
+                        fullWidth
+                      />
+                    )}
+                    renderTags={(value, getTagProps) =>
+                      value.map((option, index) => (
+                        <Chip color="primary" variant="outlined" label={capitalize(option.name)} {...getTagProps({ index })} />
+                      ))
+                    }
+                  />
+                )}
+              />
             </DialogContent>
             <DialogActions>
               <Button onClick={handleClose}>Cancel</Button>
@@ -284,13 +388,17 @@ const Meals: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      <Box sx={{ mt: 2, display: 'flex', justifyContent: 'right' }}>
-        <Button
-          variant="contained"
-          onClick={() => handleClickOpen()}
-        >
-          Create New Meal
-        </Button>
+      <Box sx={{ position: 'fixed', bottom: 16, left: 0, right: 0 }}>
+        <Container maxWidth="lg">
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button
+              variant="contained"
+              onClick={() => handleClickOpen()}
+            >
+              Create New Meal
+            </Button>
+          </Box>
+        </Container>
       </Box>
     </div>
   );

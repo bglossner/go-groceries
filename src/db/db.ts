@@ -31,6 +31,7 @@ export interface Meal {
   name: string;
   recipe?: string;
   ingredients: Ingredient[];
+  tags?: number[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -57,19 +58,26 @@ export interface Recipe {
   notes: string;
 }
 
+export interface Tag {
+  id?: number;
+  name: string;
+}
+
 export class MySubClassedDexie extends Dexie {
   meals!: Table<Meal>;
   groceryLists!: Table<GroceryList>;
   groceryListStates!: Table<GroceryListState>;
   recipes!: Table<Recipe>;
+  tags!: Table<Tag>;
 
   constructor() {
     super('groceriesHelper');
-    this.version(5).stores({
-      meals: '++id, name, createdAt, updatedAt',
+    this.version(6).stores({
+      meals: '++id, name, createdAt, updatedAt, *tags',
       groceryLists: '++id, name, createdAt',
       groceryListStates: '++id, groceryListId',
       recipes: '++id, mealId',
+      tags: '++id, name',
     });
   }
 }
