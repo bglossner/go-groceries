@@ -9,10 +9,6 @@ export const Route = createLazyFileRoute('/')({
   component: Index,
 });
 
-const isOldStyle = (filename: string) => {
-  return filename.startsWith('groceries_backup_') && filename.endsWith('.json');
-};
-
 const exportBlobToFile = (filename: string, blob: Blob | File) => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -30,29 +26,6 @@ const handleExportNew = async () => {
   exportBlobToFile(file.name, file);
 };
 
-// const handleExportOld = async () => {
-//   try {
-//     const allGroceryLists = await db.groceryLists.toArray();
-//     const allMeals = await db.meals.toArray();
-//     const allGroceryListStates = await db.groceryListStates.toArray();
-//     const allRecipes = await db.recipes.toArray();
-
-//     const data = {
-//       groceryLists: allGroceryLists,
-//       meals: allMeals,
-//       groceryListStates: allGroceryListStates,
-//       recipes: allRecipes,
-//     };
-
-//     const json = JSON.stringify(data, null, 2);
-//     const blob = new Blob([json], { type: 'application/json' });
-//     exportBlobToFile(`groceries_backup_${new Date().toISOString()}.json`, blob);
-//   } catch (error) {
-//     console.error("Error exporting data:", error);
-//     alert("Failed to export data. Check console for details.");
-//   }
-// };
-
 const deleteDbData = async () => {
   await db.transaction('rw', db.groceryLists, db.meals, db.groceryListStates, db.recipes, async () => {
     await Promise.all([
@@ -60,6 +33,13 @@ const deleteDbData = async () => {
       db.meals.clear(),
       db.groceryListStates.clear(),
       db.recipes.clear(),
+    ]);
+  });
+
+  await db.transaction('rw',db.tags, db.customIngredients, async () => {
+    await Promise.all([
+      db.tags.clear(),
+      db.customIngredients.clear(),
     ]);
   });
 };
@@ -71,40 +51,6 @@ const handleImportNew = async (file: File): Promise<void> => {
   });
 };
 
-const handleImportOld = async (file: File): Promise<void> => {
-  try {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const importedData = JSON.parse(e.target?.result as string);
-
-        await db.transaction('rw', db.groceryLists, db.meals, db.groceryListStates, db.recipes, async () => {
-          await Promise.all([
-            db.groceryLists.clear(),
-            db.meals.clear(),
-            db.groceryListStates.clear(),
-            db.recipes.clear(),
-          ]);
-
-          await Promise.all([
-            db.groceryLists.bulkAdd(importedData.groceryLists),
-            db.meals.bulkAdd(importedData.meals),
-            db.groceryListStates.bulkAdd(importedData.groceryListStates),
-            db.recipes.bulkAdd(importedData.recipes),
-          ]);
-        });
-      } catch (innerError: any) {
-        console.error("Error importing data:", innerError);
-        throw innerError;
-      }
-    };
-    reader.readAsText(file);
-  } catch (outerError: any) {
-    console.error("Error reading file:", outerError);
-    throw outerError;
-  }
-};
-
 function Index() {
   const queryClient = useQueryClient();
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -112,7 +58,6 @@ function Index() {
   const [importError, setImportError] = useState<string | null>(null);
 
   const handleExport = async () => {
-    // await handleExportOld();
     await handleExportNew();
   };
 
@@ -124,13 +69,8 @@ function Index() {
     setImportError(null);
 
     try {
-      if (isOldStyle(file.name)) {
-        console.log('Doing old style import');
-        await handleImportOld(file);
-      } else {
-        console.log('Doing new style import');
-        await handleImportNew(file);
-      }
+      console.log('Doing new style import');
+      await handleImportNew(file);
 
       setImportStatus('success');
       // Explicitly refetch all relevant queries
@@ -138,6 +78,8 @@ function Index() {
       await queryClient.refetchQueries({ queryKey: ['meals'] });
       await queryClient.refetchQueries({ queryKey: ['groceryListStates'] });
       await queryClient.refetchQueries({ queryKey: ['recipes'] });
+      await queryClient.refetchQueries({ queryKey: ['tags'] });
+      await queryClient.refetchQueries({ queryKey: ['customIngredients'] });
 
       setTimeout(() => {
         setImportModalOpen(false);
