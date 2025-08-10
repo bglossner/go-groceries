@@ -8,14 +8,18 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "start": "wrangler dev",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "sync-secrets": "node scripts/sync-dev-vars-to-cloudflare.js"
   },
   "dependencies": {
+    "@googleapis/youtube": "^28.0.0",
     "chanfana": "^2.6.3",
+    "groq-sdk": "^0.30.0",
     "hono": "^4.6.20",
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@go-groceries/frontend": "file:../frontend",
     "@types/node": "22.13.0",
     "@types/service-worker-mock": "^2.0.4",
     "typescript": "^5.9.2",

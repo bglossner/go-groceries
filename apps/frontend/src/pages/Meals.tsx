@@ -1,23 +1,13 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { db, type Meal, ingredientSchema, type Tag } from '../db/db';
+import { db, type Meal, type Tag } from '../db/db';
 import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box, Accordion, AccordionSummary, AccordionDetails, Typography, Chip, Autocomplete, createFilterOptions, Container, DialogContentText, Checkbox, ListItemButton, ListItemIcon } from '@mui/material';
 import { useNavigate } from '@tanstack/react-router';
 import { Edit, Delete, ExpandMore, Restaurant, FilterList } from '@mui/icons-material';
 import { useForm, Controller, FormProvider, type ResolverOptions, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import IngredientForm from '../components/IngredientForm';
-
-const mealFormSchema = z.object({
-  name: z.string().min(1, 'Meal name is required').transform(name => name.trim()),
-  ingredients: z.array(ingredientSchema).transform((ingredients) => {
-    return ingredients.filter(ing => ing.name && ing.name.trim() !== '');
-  }).refine((ingredients) => ingredients.length > 0, 'Must have at least 1 ingredient'),
-  tags: z.array(z.object({ id: z.number().optional(), name: z.string() })).optional(),
-});
-
-type MealForm = z.infer<typeof mealFormSchema>;
+import { mealFormSchema, type MealForm } from '../types/meals';
 
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 

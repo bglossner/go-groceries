@@ -3,6 +3,14 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "exports": {
+    "./meals": {
+      "types": "./src/shareable/meals.ts"
+    },
+    ".": {
+      "types": "./src/shareable/response.ts"
+    }
+  },
   "scripts": {
     "dev": "vite",
     "check-types": "tsc -b",

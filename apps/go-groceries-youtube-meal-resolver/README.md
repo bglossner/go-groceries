@@ -7,10 +7,15 @@ This is an example project made to be used as a quick start into building OpenAP
 
 ## Get started
 
+Check out .example.dev.vars for an example of what your secrets should look like.
+
 1. Sign up for [Cloudflare Workers](https://workers.dev). The free tier is more than enough for most use cases.
 1. Clone this project and install dependencies with `npm install`
 1. Run `wrangler login` to login to your Cloudflare account in wrangler
-1. Add the YouTube API key: `wrangler secret put YOUTUBE_API_KEY`
+1. Add the YouTube API key in .dev.vars
+1. Add the password desired in .dev.vars
+1. Add the Groq API key if using Groq in .dev.vars
+1. Sync the secrets via `npm run sync-secrets`
 1. Run `wrangler deploy` to publish the API to Cloudflare Workers
 
 ## Project structure

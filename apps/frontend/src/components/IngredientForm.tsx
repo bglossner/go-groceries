@@ -4,7 +4,7 @@ import { TextField, IconButton, Box, Typography, Autocomplete, createFilterOptio
 import { RemoveCircleOutline } from '@mui/icons-material';
 import type { Ingredient, CustomIngredient } from '../db/db';
 
-const flexGrowIngreidentNames = 1;
+// const flexGrowIngreidentNames = 1;
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 
 interface IngredientFormProps {
@@ -72,7 +72,7 @@ const IngredientForm: React.FC<IngredientFormProps> = ({ name, label, customIngr
                   onInputChange={(_event, newInputValue) => {
                     field.onChange(newInputValue);
                   }}
-                  sx={{ flexGrow: flexGrowIngreidentNames, flexBasis: 0 }}
+                  // sx={{ flexGrow: flexGrowIngreidentNames, flexBasis: 0 }}
                   renderInput={(params) => (
                     <TextField
                       {...params}
@@ -90,7 +90,7 @@ const IngredientForm: React.FC<IngredientFormProps> = ({ name, label, customIngr
                   margin="dense"
                   label="Ingredient Name"
                   type="text"
-                  sx={{ flexGrow: flexGrowIngreidentNames }}
+                  // sx={{ flexGrow: flexGrowIngreidentNames }}
                   value={capitalize(field.value || '')}
                   onChange={(e) => field.onChange(e.target.value)}
                   onBlur={(e) => {
@@ -112,7 +112,7 @@ const IngredientForm: React.FC<IngredientFormProps> = ({ name, label, customIngr
                 margin="dense"
                 label="Quantity"
                 type="number"
-                sx={{ flexGrow: 1, flexBasis: 0 }}
+                // sx={{ flexGrow: 1, flexBasis: 0 }}
                 onChange={(e) => { field.onChange(e.target.value === '' ? '' : parseInt(e.target.value, 10)) }}
                 error={!!error}
                 helperText={error?.message}

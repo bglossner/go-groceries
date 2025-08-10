@@ -7,11 +7,13 @@
 	"name": "go-groceries-youtube-meal-resolver",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-08-09",
+	"compatibility_flags": ["nodejs_compat"],
 	"observability": {
 		"enabled": true
 	},
+  "workers_dev": true,
 	"vars": {
-		"YOUTUBE_API_KEY": "PLACEHOLDER"
+    "ENABLE_PASS": "true"
 	}
 	/**
 	 * Smart Placement

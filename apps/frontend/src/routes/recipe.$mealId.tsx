@@ -5,17 +5,9 @@ import { Button, TextField, Typography, Box, IconButton, Dialog, DialogActions, 
 import { Edit, ArrowBack } from '@mui/icons-material';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { useState, useEffect, useRef } from 'react';
 import imageCompression from 'browser-image-compression';
-
-const recipeSchema = z.object({
-  url: z.string().max(500).optional().or(z.literal('')),
-  notes: z.string().max(10000).optional(),
-  images: z.array(z.instanceof(File)).max(10).optional(),
-});
-
-type RecipeForm = z.infer<typeof recipeSchema>;
+import { recipeSchema, type RecipeForm } from '../types/recipe';
 
 export const Route = createFileRoute('/recipe/$mealId')({
   component: RecipeComponent,

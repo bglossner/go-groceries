@@ -69,6 +69,13 @@ export interface CustomIngredient {
   usageCount?: number;
 }
 
+export interface GenerateMealDataOutput {
+  mealName: string;
+  ingredients: Ingredient[];
+  recipe: string;
+  tags: Tag[];
+}
+
 export class MySubClassedDexie extends Dexie {
   meals!: Table<Meal>;
   groceryLists!: Table<GroceryList>;

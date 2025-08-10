@@ -7,6 +7,9 @@ declare namespace Cloudflare {
 }
 interface Env extends Cloudflare.Env {
   YOUTUBE_API_KEY: string;
+  GROQ_API_KEY: string;
+  PASS: string;
+  ENABLE_PASS: string;
 }
 
 type Prettify<T> = {
