@@ -1,4 +1,4 @@
-import Groq from 'groq-sdk';
+import Groq, { APIError } from 'groq-sdk';
 import { AppContext } from '../types';
 import { Model, ModelResponse } from './model-interface';
 import { ErrorWrapper } from '../endpoints/generate-meal-data';
@@ -110,8 +110,28 @@ type ModelProps = {
 
 const MODELS_BY_DESIRE = [
   { name: 'llama-3.3-70b-versatile', responseFormat: { type: 'json_object' } },
+  { name: 'moonshotai/kimi-k2-instruct', responseFormat: { type: 'json_object' } },
+  { name: 'openai/gpt-oss-120b', responseFormat: { type: 'json_object' } },
   { name: 'llama3-70b-8192', responseFormat: { type: 'json_object' } },
+  { name: 'gemma2-9b-it', responseFormat: { type: 'json_object' } },
+  { name: 'llama3-8b-8192', responseFormat: { type: 'json_object' } },
 ] as const satisfies ModelProps[];
+
+type UsageStats = {
+  remainingTokens: number;
+  remainingRequests: number;
+  retryAfterSeconds: number;
+  timeUntilResetTokens: number;
+};
+
+const getUsageStatsFromError = (error: APIError): UsageStats => {
+  return {
+    remainingTokens: Number(error.headers['x-ratelimit-remaining-tokens']),
+    remainingRequests: Number(error.headers['x-ratelimit-remaining-requests']),
+    timeUntilResetTokens: Number(error.headers['x-ratelimit-reset-tokens']),
+    retryAfterSeconds: Number(error.headers['Retry-After']),
+  };
+}
 
 export class GroqModel extends Model {
   async makeRequest(c: AppContext, identifier: string, request: string): Promise<ModelResponse> {
@@ -130,6 +150,7 @@ export class GroqModel extends Model {
       const output = await this.makeModelRequest(c, identifier, request);
       content = output.content;
       model = output.model;
+      CACHED_RESPONSES[identifier] = content;
     }
     content = content.trim();
 
@@ -150,6 +171,7 @@ export class GroqModel extends Model {
           response_format: responseFormat,
         });
 
+        console.log(`Successfully made call to ${name} for ${identifier}`);
         return {
           content: chatCompletion.choices[0].message.content,
           model: name,
@@ -157,6 +179,13 @@ export class GroqModel extends Model {
       } catch (error: any) {
         console.warn(`Caught error for model ${name} for ${identifier}`);
         console.warn(error);
+        if (error instanceof APIError) {
+          if (error.status === 429) {
+            console.warn(`[THROTTLE] Error for ${name} was throttling. Additional info: ${JSON.stringify(getUsageStatsFromError(error))}`);
+          }
+        } else {
+          console.warn(`Error for ${name} could not be source from Groq API error`);
+        }
       }
     }
 

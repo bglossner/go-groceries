@@ -1,1 +1,1 @@
-{"root":["./src/index.ts","./src/types.ts","./src/endpoints/generate-meal-data.ts","./worker-configuration.d.ts"],"version":"5.9.2"}
+{"root":["./src/index.ts","./src/types.ts","./src/endpoints/generate-meal-data.ts","./src/models/groq.ts","./src/models/model-interface.ts","./worker-configuration.d.ts"],"version":"5.9.2"}

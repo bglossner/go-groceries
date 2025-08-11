@@ -7,7 +7,11 @@ import { Edit, Delete, ExpandMore, Restaurant, FilterList } from '@mui/icons-mat
 import { useForm, Controller, FormProvider, type ResolverOptions, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import IngredientForm from '../components/IngredientForm';
+import MealCreationTypeSelection from '../components/MealCreationTypeSelection';
+import FromYoutubeMealCreation from '../components/FromYoutubeMealCreation';
+import FromImagesMealCreation from '../components/FromImagesMealCreation';
 import { mealFormSchema, type MealForm } from '../types/meals';
+import type { MealGenerationDataResponseData } from '../shareable/meals';
 
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 
@@ -19,6 +23,9 @@ const Meals: React.FC = () => {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null);
+  const [openCreationTypeSelection, setOpenCreationTypeSelection] = useState(false);
+  const [creationType, setCreationType] = useState<'manual' | 'youtube' | 'images' | null>(null);
+  const [prefilledYoutubeUrl, setPrefilledYoutubeUrl] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
   const navigate = useNavigate();
@@ -126,13 +133,37 @@ const Meals: React.FC = () => {
         ingredients: meal.ingredients.map(ing => ({ name: ing.name, quantity: ing.quantity })),
         tags: mealTags.filter(tag => tag !== undefined) as Tag[],
       });
+      setCreationType('manual');
+      setOpen(true);
     } else {
+      setOpenCreationTypeSelection(true);
+    }
+  };
+
+  const handleSelectCreationType = (type: 'manual' | 'youtube' | 'images') => {
+    setCreationType(type);
+    setOpenCreationTypeSelection(false);
+    if (type === 'manual') {
       reset({
         name: '',
         ingredients: [{ name: '', quantity: undefined }],
         tags: [],
       });
+      setOpen(true);
+    } else {
+      setOpen(true); // Open the dialog for YouTube/Images placeholder
     }
+  };
+
+  const handleMealDataGenerated = (data: MealGenerationDataResponseData, youtubeUrl: string) => {
+    setPrefilledYoutubeUrl(youtubeUrl);
+    console.log('HEHE');
+    methods.reset({
+      name: data.data.name,
+      ingredients: data.data.ingredients.map(ing => ({ name: ing.name, quantity: ing.quantity })),
+      tags: data.data.tags?.map(tagName => ({ name: tagName })) || [],
+    });
+    setCreationType('manual');
     setOpen(true);
   };
 
@@ -146,6 +177,8 @@ const Meals: React.FC = () => {
       setSelectedMeal(null);
       reset();
       setDiscardConfirmOpen(false);
+      setCreationType(null);
+      setPrefilledYoutubeUrl(null); // Clear prefilled URL on close
     }
   };
 
@@ -290,103 +323,124 @@ const Meals: React.FC = () => {
         ))}
       </List>
 
-      <Dialog open={open} onClose={handleClose}>
-        <DialogTitle>{selectedMeal ? 'Edit Meal' : 'Create New Meal'}</DialogTitle>
-        <FormProvider {...methods}>
-          <form onSubmit={(...args) => { return handleSubmit(onSubmit)(...args);  }}>
-            <DialogContent>
-              <Controller
-                name="name"
-                control={control}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    autoFocus
-                    margin="dense"
-                    label="Meal Name"
-                    type="text"
-                    fullWidth
-                    error={!!errors.name}
-                    helperText={errors.name?.message}
-                    onBlur={(e) => {
-                      field.onChange(e.target.value.trim());
-                      field.onBlur();
-                    }}
-                    required
-                  />
-                )}
-              />
-              <IngredientForm name="ingredients" label="Ingredients" enableAutocomplete={false} />
-              <Controller
-                name="tags"
-                control={control}
-                render={({ field }) => (
-                  <Autocomplete
-                    {...field}
-                    multiple
-                    freeSolo
-                    options={(tags || []).filter(tag => !field.value?.some(selectedTag => selectedTag.name === tag.name))}
-                    getOptionLabel={(option) => {
-                      if (typeof option === 'string') {
-                        return capitalize(option);
-                      }
-                      return capitalize(option.name);
-                    }}
-                    filterOptions={(options, params) => {
-                      const filtered = filter(options, params);
-                      if (params.inputValue !== '') {
-                        filtered.push({
-                          id: undefined,
-                          name: `Add "${capitalize(params.inputValue)}"`,
-                        });
-                      }
-                      return filtered;
-                    }}
-                    value={field.value || []}
-                    onChange={(_, newValue) => {
-                      const uniqueTags = new Map<string, { name: string }>();
-                      newValue.forEach(option => {
-                          let processedTagName: string;
-                          if (typeof option === 'string') {
-                              processedTagName = option.trim().toLowerCase();
-                          } else if (option.name.startsWith('Add "') && option.name.endsWith('"')) {
-                              processedTagName = option.name.substring(5, option.name.length - 1).trim().toLowerCase();
-                          } else {
-                              processedTagName = option.name.trim().toLowerCase();
-                          }
+      <MealCreationTypeSelection
+        open={openCreationTypeSelection}
+        onClose={() => setOpenCreationTypeSelection(false)}
+        onSelectType={handleSelectCreationType}
+      />
 
-                          if (!uniqueTags.has(processedTagName)) {
-                              uniqueTags.set(processedTagName, { name: processedTagName });
-                          }
-                      });
-                      field.onChange(Array.from(uniqueTags.values()));
-                    }}
-                    renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        variant="outlined"
-                        label="Tags"
-                        placeholder="Add tags"
-                        margin="dense"
-                        fullWidth
-                      />
-                    )}
-                    renderTags={(value, getTagProps) =>
-                      value.map((option, index) => (
-                        <Chip color="primary" variant="outlined" label={capitalize(option.name)} {...getTagProps({ index })} />
-                      ))
-                    }
-                  />
-                )}
-              />
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={handleClose}>Cancel</Button>
-              <Button type="submit">{selectedMeal ? 'Save' : 'Create'}</Button>
-            </DialogActions>
-          </form>
-        </FormProvider>
-      </Dialog>
+      {creationType === 'manual' && (
+        <Dialog open={open} onClose={handleClose}>
+          <DialogTitle>{selectedMeal ? 'Edit Meal' : 'Create New Meal'}</DialogTitle>
+          {prefilledYoutubeUrl && (
+            <DialogContentText sx={{ px: 3, pt: 2 }}>
+              This meal form was pre-filled from YouTube URL: <a href={prefilledYoutubeUrl} target="_blank" rel="noopener noreferrer">{prefilledYoutubeUrl}</a>
+            </DialogContentText>
+          )}
+          <FormProvider {...methods}>
+            <form onSubmit={(...args) => { return handleSubmit(onSubmit)(...args);  }}>
+              <DialogContent>
+                <Controller
+                  name="name"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      autoFocus
+                      margin="dense"
+                      label="Meal Name"
+                      type="text"
+                      fullWidth
+                      error={!!errors.name}
+                      helperText={errors.name?.message}
+                      onBlur={(e) => {
+                        field.onChange(e.target.value.trim());
+                        field.onBlur();
+                      }}
+                      required
+                    />
+                  )}
+                />
+                <IngredientForm name="ingredients" label="Ingredients" enableAutocomplete={false} />
+                <Controller
+                  name="tags"
+                  control={control}
+                  render={({ field }) => (
+                    <Autocomplete
+                      {...field}
+                      multiple
+                      freeSolo
+                      options={(tags || []).filter(tag => !field.value?.some(selectedTag => selectedTag.name === tag.name))}
+                      getOptionLabel={(option) => {
+                        if (typeof option === 'string') {
+                          return capitalize(option);
+                        }
+                        return capitalize(option.name);
+                      }}
+                      filterOptions={(options, params) => {
+                        const filtered = filter(options, params);
+                        if (params.inputValue !== '') {
+                          filtered.push({
+                            id: undefined,
+                            name: `Add "${capitalize(params.inputValue)}"`,
+                          });
+                        }
+                        return filtered;
+                      }}
+                      value={field.value || []}
+                      onChange={(_, newValue) => {
+                        const uniqueTags = new Map<string, { name: string }>();
+                        newValue.forEach(option => {
+                            let processedTagName: string;
+                            if (typeof option === 'string') {
+                                processedTagName = option.trim().toLowerCase();
+                            } else if (option.name.startsWith('Add "') && option.name.endsWith('"')) {
+                                processedTagName = option.name.substring(5, option.name.length - 1).trim().toLowerCase();
+                            } else {
+                                processedTagName = option.name.trim().toLowerCase();
+                            }
+
+                            if (!uniqueTags.has(processedTagName)) {
+                                uniqueTags.set(processedTagName, { name: processedTagName });
+                            }
+                        });
+                        field.onChange(Array.from(uniqueTags.values()));
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          variant="outlined"
+                          label="Tags"
+                          placeholder="Add tags"
+                          margin="dense"
+                          fullWidth
+                        />
+                      )}
+                      renderTags={(value, getTagProps) =>
+                        value.map((option, index) => (
+                          <Chip color="primary" variant="outlined" label={capitalize(option.name)} {...getTagProps({ index })} />
+                        ))
+                      }
+                    />
+                  )}
+                />
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={handleClose}>Cancel</Button>
+                <Button type="submit">{selectedMeal ? 'Save' : 'Create'}</Button>
+              </DialogActions>
+            </form>
+          </FormProvider>
+        </Dialog>
+      )}
+
+      {creationType === 'youtube' && (
+        <FromYoutubeMealCreation open={open} onClose={handleClose} onMealDataGenerated={handleMealDataGenerated} />
+      )}
+
+      {creationType === 'images' && (
+        <FromImagesMealCreation open={open} onClose={handleClose} />
+      )}
 
       <Dialog open={filterDialogOpen} onClose={handleFilterDialogClose}>
         <DialogTitle>Filter by Tags</DialogTitle>

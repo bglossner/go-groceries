@@ -9,7 +9,15 @@ export type MealGenerationDataInput = Pick<MealForm, 'name' | 'ingredients'> & {
   };
 };
 
-export type MealGenerationDataResponse = {
+export interface GenerateMealDataRequestInput {
+  url: string;
+  availableTags?: string[];
+  pass: string;
+}
+
+export type MealGenerationDataResponseData = {
   data: MealGenerationDataInput;
   modelUsed?: string;
-} | ErrorResponse;
+};
+
+export type MealGenerationDataResponse = MealGenerationDataResponseData | ErrorResponse;
