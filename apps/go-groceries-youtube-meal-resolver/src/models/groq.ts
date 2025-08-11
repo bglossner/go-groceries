@@ -163,6 +163,7 @@ export class GroqModel extends Model {
   private async makeModelRequest(c: AppContext, identifier: string, request: string): Promise<{ content: string, model: string }> {
     const model = getGroqInstance(c);
 
+    let lowestTimeUntilRetry: number | undefined;
     for (const { name, responseFormat } of MODELS_BY_DESIRE) {
       try {
         const chatCompletion = await model.chat.completions.create({
@@ -181,7 +182,12 @@ export class GroqModel extends Model {
         console.warn(error);
         if (error instanceof APIError) {
           if (error.status === 429) {
-            console.warn(`[THROTTLE] Error for ${name} was throttling. Additional info: ${JSON.stringify(getUsageStatsFromError(error))}`);
+            const usageStats = getUsageStatsFromError(error);
+            if (!lowestTimeUntilRetry || usageStats.retryAfterSeconds < lowestTimeUntilRetry) {
+              lowestTimeUntilRetry = usageStats.retryAfterSeconds;
+            }
+
+            console.warn(`[THROTTLE] Error for ${name} was throttling. Additional info: ${JSON.stringify(usageStats)}`);
           }
         } else {
           console.warn(`Error for ${name} could not be source from Groq API error`);
@@ -189,6 +195,9 @@ export class GroqModel extends Model {
       }
     }
 
-    throw new ErrorWrapper({ message: `No models succeeded for input ${identifier}`, statusCode: 500 });
+    throw new ErrorWrapper({
+      message: `No models succeeded for input ${identifier}.${lowestTimeUntilRetry ? ` Retryable after ${lowestTimeUntilRetry} seconds` : ''}`,
+      statusCode: 500
+    });
   }
 }
