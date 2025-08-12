@@ -20,9 +20,12 @@ let youtubes: { [apiKey: string]: youtube_v3.Youtube } = {};
 const getYouTubeInstance = (c: AppContext) => {
   const apiKey = c.env.YOUTUBE_API_KEY;
   if (!youtubes[apiKey]) {
+    console.log('Creating new YouTube instance!');
     youtubes[apiKey] = new youtube_v3.Youtube({
       auth: apiKey,
     });
+  } else {
+    console.log('Using cached YouTube instance!');
   }
   return youtubes[apiKey];
 };

@@ -6,18 +6,12 @@ import { Edit, ArrowBack } from '@mui/icons-material';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useState, useEffect, useRef } from 'react';
-import imageCompression from 'browser-image-compression';
 import { recipeSchema, type RecipeForm } from '../types/recipe';
+import { convertFilesToImageBlobs, imageUrlResolver } from '../util/images';
 
 export const Route = createFileRoute('/recipe/$mealId')({
   component: RecipeComponent,
 });
-
-const IMAGE_OPTIONS = {
-  maxSizeMB: 1,
-  maxWidthOrHeight: 1920,
-  useWebWorker: true,
-} as const satisfies Parameters<typeof imageCompression>[1];
 
 function RecipeComponent() {
   const { mealId } = Route.useParams();
@@ -27,6 +21,7 @@ function RecipeComponent() {
   const [isDirty, setIsDirty] = useState(false);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [imageUrlInput, setImageUrlInput] = useState('');
   const initialRecipeExists = useRef<boolean | null>(null);
   const recipeLookedUp = useRef(false);
 
@@ -53,10 +48,25 @@ function RecipeComponent() {
     enabled: !!mealId,
   });
 
-  const { control, handleSubmit, reset, formState: { errors } } = useForm<RecipeForm>({
+  const { control, handleSubmit, reset, formState: { errors }, setValue, getValues } = useForm<RecipeForm>({
     resolver: zodResolver(recipeSchema),
     defaultValues: { url: '', notes: '', images: [] },
   });
+
+  const handleImageUrlAdd = async () => {
+    const trimmedUrl = imageUrlInput.trim();
+    if (trimmedUrl) {
+      const parseResult = await imageUrlResolver.safeParseAsync(trimmedUrl);
+      if (!parseResult.success) {
+        const errorMessage = parseResult.error.issues[0].message;
+        alert(errorMessage);
+        return;
+      }
+      const currentImages = getValues('images') || [];
+      setValue('images', [...currentImages, parseResult.data], { shouldDirty: true });
+      setImageUrlInput('');
+    }
+  };
 
   useEffect(() => {
     if (initialRecipeExists.current !== null && recipeLookedUp.current) {
@@ -73,6 +83,10 @@ function RecipeComponent() {
     }
     setIsDirty(false);
   }, [recipe, isLoading, reset]);
+
+  useEffect(() => {
+    setImageUrlInput('');
+  }, [isEditMode]);
 
   const handleImportRecipe = () => {
     if (!pendingRecipe) return;
@@ -143,10 +157,7 @@ function RecipeComponent() {
 
   const convertPhotoTaken = async (files: File[]) => {
     try {
-      return await Promise.all(files.map(async (file) => {
-        const blob = await imageCompression(file, IMAGE_OPTIONS);
-        return new File([blob], file.name, { type: blob.type, lastModified: blob.lastModified || Date.now() });
-      }));
+      return await convertFilesToImageBlobs(files);
     } catch (error: any) {
       console.error(error);
       alert(error);
@@ -195,62 +206,75 @@ function RecipeComponent() {
               control={control}
               render={({ field }) => (
                 <Box>
-                  <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', alignItems: 'center' }}>
-                    <input
-                      type="file"
-                      multiple
-                      accept="image/*"
-                      id="file-input"
-                      style={{ display: 'none' }}
-                      onChange={async (e) => {
-                        const files = Array.from(e.target.files || []);
-                        if (files.length === 0) return;
-                        const convertedFiles = await convertPhotoTaken(files);
-                        field.onChange([...(field.value || []), ...convertedFiles]);
-                        setIsDirty(true);
-                      }}
-                    />
-                    <Button
-                      variant="outlined"
-                      component="label"
-                      htmlFor="file-input"
-                      sx={{ mt: 1, mb: 2 }}
-                    >
-                      Upload Photo
-                    </Button>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      id="camera-input"
-                      style={{ display: 'none' }}
-                      onChange={async (e) => {
-                        const files = Array.from(e.target.files || []);
-                        if (files.length === 0) return;
-                        const convertedFiles = await convertPhotoTaken(files);
-                        field.onChange([...(field.value || []), ...convertedFiles]);
-                        setIsDirty(true);
-                      }}
-                    />
-                    <Button
-                      variant="outlined"
-                      component="label"
-                      htmlFor="camera-input"
-                      sx={{ mt: 1, mb: 2 }}
-                    >
-                      Take Photo
-                    </Button>
+                  <Box sx={{ display: 'flex', flexWrap: { xs: 'wrap', md: 'nowrap' }, gap: 3, justifyContent: 'center', alignItems: 'center' }}>
+                    <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        id="file-input"
+                        style={{ display: 'none' }}
+                        onChange={async (e) => {
+                          const files = Array.from(e.target.files || []);
+                          if (files.length === 0) return;
+                          const convertedFiles = await convertPhotoTaken(files);
+                          field.onChange([...(field.value || []), ...convertedFiles]);
+                          setIsDirty(true);
+                        }}
+                      />
+                      <Button
+                        variant="outlined"
+                        component="label"
+                        htmlFor="file-input"
+                        sx={{ mt: 1, mb: 2 }}
+                      >
+                        Upload Photo
+                      </Button>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        id="camera-input"
+                        style={{ display: 'none' }}
+                        onChange={async (e) => {
+                          const files = Array.from(e.target.files || []);
+                          if (files.length === 0) return;
+                          const convertedFiles = await convertPhotoTaken(files);
+                          field.onChange([...(field.value || []), ...convertedFiles]);
+                          setIsDirty(true);
+                        }}
+                      />
+                      <Button
+                        variant="outlined"
+                        component="label"
+                        htmlFor="camera-input"
+                        sx={{ mt: 1, mb: 2 }}
+                      >
+                        Take Photo
+                      </Button>
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', alignItems: 'center', mb: 2, flexGrow: 1 }}>
+                      <TextField
+                        label="Image URL"
+                        variant="outlined"
+                        size="small"
+                        value={imageUrlInput}
+                        onChange={(e) => setImageUrlInput(e.target.value)}
+                        sx={{ flexGrow: 1 }}
+                      />
+                      <Button variant="outlined" onClick={handleImageUrlAdd}>Add URL</Button>
+                    </Box>
                   </Box>
                   <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', flexWrap: 'wrap', p: 1 }}>
                     {(field.value && field.value.length > 0) ? (
-                      field.value.map((image: File, index: number) => (
+                      field.value.map((image: File | string, index: number) => (
                         <Box key={index} sx={{ position: 'relative' }}>
                           <img
-                            src={URL.createObjectURL(image)}
+                            src={typeof image === 'string' ? image : URL.createObjectURL(image)}
                             alt={`recipe-${index}`}
                             width="150"
                             style={{ border: '1px solid black', cursor: 'pointer' }}
-                            onClick={() => setSelectedImage(URL.createObjectURL(image))}
+                            onClick={() => setSelectedImage(typeof image === 'string' ? image : URL.createObjectURL(image))}
                           />
                           <IconButton
                             sx={{
@@ -282,8 +306,8 @@ function RecipeComponent() {
           ) : (
             recipe && recipe.images && recipe.images.length > 0 ? (
               <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', flexWrap: 'wrap', p: 1 }}>
-                {recipe.images.map((image: File, index: number) => (
-                  <img key={index} src={URL.createObjectURL(image)} alt={`recipe-${index}`} width="150" style={{ border: '1px solid black' }} onClick={() => setSelectedImage(URL.createObjectURL(image))} />
+                {recipe.images.map((image: File | string, index: number) => (
+                  <img key={index} src={typeof image === 'string' ? image : URL.createObjectURL(image)} alt={`recipe-${index}`} width="150" style={{ border: '1px solid black' }} onClick={() => setSelectedImage(typeof image === 'string' ? image : URL.createObjectURL(image))} />
                 ))}
               </Box>
             ) : (

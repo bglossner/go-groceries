@@ -54,7 +54,7 @@ export interface GroceryListState {
 export interface Recipe {
   id?: number;
   mealId: number;
-  images: File[];
+  images: (File | string)[];
   url: string;
   notes: string;
 }
