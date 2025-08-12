@@ -13,6 +13,7 @@ interface FromYoutubeMealCreationProps {
   onMealDataGenerated: (data: MealGenerationDataInput, youtubeUrl: string, createRecipe: boolean) => void;
 }
 
+// @ts-ignore
 const callYoutubeApi = async (input: GenerateMealDataRequestInput): Promise<MealGenerationDataResponse> => {
   const baseUrl = import.meta.env.VITE_YOUTUBE_API_BASE_URL || '';
   const response = await fetch(`${baseUrl}/youtube/generate-meal-data`, {
@@ -49,6 +50,7 @@ const FromYoutubeMealCreation: React.FC<FromYoutubeMealCreationProps> = ({ open,
   });
 
   const generateMealDataMutation = useMutation<MealGenerationDataResponse, Error, GenerateMealDataRequestInput>({
+    // @ts-ignore
     mutationFn: async (input) => {
       // @ts-ignore
       // return callYoutubeApi(input);

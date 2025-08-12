@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type Meal, type Tag, type Recipe, type PendingRecipe } from '../db/db';
-import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box, Accordion, AccordionSummary, AccordionDetails, Typography, Chip, Autocomplete, createFilterOptions, Container, DialogContentText, Checkbox, ListItemButton, ListItemIcon } from '@mui/material';
+import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box, Accordion, AccordionSummary, AccordionDetails, Typography, Chip, Autocomplete, createFilterOptions, Container, DialogContentText, Checkbox, ListItemButton, ListItemIcon, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
 import { useNavigate } from '@tanstack/react-router';
-import { Edit, Delete, ExpandMore, Restaurant, FilterList } from '@mui/icons-material';
+import { Edit, Delete, ExpandMore, Restaurant, FilterList, ArrowUpward, ArrowDownward } from '@mui/icons-material';
 import { useForm, Controller, FormProvider, type ResolverOptions, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import IngredientForm from '../components/IngredientForm';
@@ -17,7 +17,7 @@ const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 
 const filter = createFilterOptions<Tag>({ limit: 5 });
 
-const sessionStartTime = new Date();
+let sessionStartTime = new Date();
 
 const Meals: React.FC = () => {
   const queryClient = useQueryClient();
@@ -33,6 +33,8 @@ const Meals: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [selectedFilterTags, setSelectedFilterTags] = useState<Tag[]>([]);
+  const [sortBy, setSortBy] = useState<'name' | 'createdAt' | 'updatedAt'>('name');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   const handleFilterDialogOpen = () => {
     setFilterDialogOpen(true);
@@ -49,28 +51,33 @@ const Meals: React.FC = () => {
   };
 
   const { data: meals } = useQuery({
-    queryKey: ['meals'],
+    queryKey: ['meals', sortBy, sortOrder],
     queryFn: async () => {
       const allMeals = await db.meals.toArray();
       const mappedWithDate = allMeals.map(meal => ({
         ...meal,
         updatedAt: new Date(meal.updatedAt || meal.createdAt || new Date()),
+        createdAt: new Date(meal.createdAt || new Date()),
       }));
+
       mappedWithDate.sort((a, b) => {
+        let comparison = 0;
         const aIsNew = a.createdAt >= sessionStartTime;
         const bIsNew = b.createdAt >= sessionStartTime;
 
-        if (aIsNew && !bIsNew) return -1;
-        if (!aIsNew && bIsNew) return 1;
-
-        if (aIsNew && bIsNew) {
+        if (aIsNew || bIsNew) {
           return b.createdAt.getTime() - a.createdAt.getTime();
         }
 
-        if (a.name.toLowerCase() < b.name.toLowerCase()) return -1;
-        if (a.name.toLowerCase() > b.name.toLowerCase()) return 1;
+        if (sortBy === 'name') {
+          comparison = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+        } else if (sortBy === 'createdAt') {
+          comparison = a.createdAt.getTime() - b.createdAt.getTime();
+        } else if (sortBy === 'updatedAt') {
+          comparison = a.updatedAt.getTime() - b.updatedAt.getTime();
+        }
 
-        return 0;
+        return sortOrder === 'asc' ? comparison : -comparison;
       });
       return mappedWithDate;
     },
@@ -286,7 +293,26 @@ const Meals: React.FC = () => {
         <Button onClick={() => {
           setSearchTerm('');
           setSelectedFilterTags([]);
-        }} variant="outlined">Clear</Button>
+        }} variant="outlined" sx={{ flexShrink: 0 }}>Clear</Button>
+      </Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 2, justifyContent: 'flex-end' }}>
+        <FormControl sx={{ minWidth: 120, flexGrow: 1, maxWidth: 250 }} size="small">
+          <InputLabel id="sort-by-label">Sort By</InputLabel>
+          <Select
+            labelId="sort-by-label"
+            id="sort-by"
+            value={sortBy}
+            label="Sort By"
+            onChange={(e) => { sessionStartTime = new Date(); setSortBy(e.target.value as 'name' | 'createdAt' | 'updatedAt') }}
+          >
+            <MenuItem value="name">Alphabetical</MenuItem>
+            <MenuItem value="createdAt">Created Date</MenuItem>
+            <MenuItem value="updatedAt">Updated Date</MenuItem>
+          </Select>
+        </FormControl>
+        <IconButton onClick={() => { sessionStartTime = new Date(); setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')} }>
+          {sortOrder === 'asc' ? <ArrowUpward /> : <ArrowDownward />}
+        </IconButton>
       </Box>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 2 }}>
         {selectedFilterTags.map(tag => (
