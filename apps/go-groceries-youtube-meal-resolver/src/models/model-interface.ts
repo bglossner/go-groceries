@@ -49,7 +49,7 @@ export class ModelYouTubeDataExtractor {
 
       - Tags: These are descriptive labels. Return any possible applicable tags from this list: [${options.availableTags?.join(', ') ?? ''}]. This may be empty if no tags apply.
 
-      - Recipe: This is text describing the recipe to make the meal. It should be as concise as possible but include all details, ingredients, and steps required to make the meal. This may be empty if no recipe can be found. Separate the recipe instructions by newlines.
+      - Recipe: This is text describing the recipe to make the meal. It should be as concise as possible but include all details, ingredients, and steps required to make the meal. This may be empty if no recipe can be found. Separate the recipe instructions by newlines and place a hyphen before each instruction ("- Instruction 1\n").
 
       The output of this should be JSON in the following format:
       {

@@ -34,6 +34,7 @@ export interface Meal {
   tags?: number[];
   createdAt: Date;
   updatedAt: Date;
+  pendingRecipeId?: string;
 }
 
 export interface GroceryList {
@@ -56,6 +57,13 @@ export interface Recipe {
   images: File[];
   url: string;
   notes: string;
+}
+
+export interface PendingRecipe {
+  id: string;      // A UUID generated on the client
+  content?: string; // The recipe text from the API
+  sourceUrl: string;
+  createdAt: Date;
 }
 
 export interface Tag {
@@ -83,16 +91,18 @@ export class MySubClassedDexie extends Dexie {
   recipes!: Table<Recipe>;
   tags!: Table<Tag>;
   customIngredients!: Table<CustomIngredient>;
+  pendingRecipes!: Table<PendingRecipe>;
 
   constructor() {
     super('groceriesHelper');
-    this.version(8).stores({
-      meals: '++id, name, createdAt, updatedAt, *tags',
+    this.version(9).stores({
+      meals: '++id, name, createdAt, updatedAt, *tags, pendingRecipeId',
       groceryLists: '++id, name, createdAt',
       groceryListStates: '++id, groceryListId',
       recipes: '++id, mealId',
       tags: '++id, name',
       customIngredients: '++id, name, usageCount',
+      pendingRecipes: '&id, createdAt',
     });
   }
 }

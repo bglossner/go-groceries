@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { db, type Recipe, type Meal } from '../db/db';
+import { db, type Recipe, type Meal, type PendingRecipe } from '../db/db';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, TextField, Typography, Box, IconButton, Dialog, DialogActions, DialogContent, DialogTitle } from '@mui/material';
 import { Edit, ArrowBack } from '@mui/icons-material';
@@ -35,6 +35,15 @@ function RecipeComponent() {
     queryFn: () => db.meals.get(Number(mealId)),
   });
 
+  const { data: pendingRecipe } = useQuery<PendingRecipe | null>({
+    queryKey: ['pendingRecipe', meal?.pendingRecipeId],
+    queryFn: async () => {
+      if (!meal?.pendingRecipeId) return null;
+      return (await db.pendingRecipes.get(meal.pendingRecipeId)) ?? null;
+    },
+    enabled: !!meal?.pendingRecipeId,
+  });
+
   const { data: recipe, isLoading } = useQuery<Recipe | null>({
     queryKey: ['recipe', mealId],
     queryFn: async () => {
@@ -65,6 +74,16 @@ function RecipeComponent() {
     setIsDirty(false);
   }, [recipe, isLoading, reset]);
 
+  const handleImportRecipe = () => {
+    if (!pendingRecipe) return;
+    reset({
+      url: pendingRecipe.sourceUrl,
+      notes: pendingRecipe.content,
+      images: [], // No images from pending recipe
+    });
+    setIsDirty(true);
+  };
+
   const mutation = useMutation({
     mutationFn: async (formData: RecipeForm) => {
       const recipeData: Omit<Recipe, 'id'> = {
@@ -80,7 +99,12 @@ function RecipeComponent() {
         return db.recipes.add(recipeData);
       }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      if (meal?.pendingRecipeId) {
+        await db.pendingRecipes.delete(meal.pendingRecipeId);
+        await db.meals.update(meal.id!, { pendingRecipeId: undefined });
+        queryClient.invalidateQueries({ queryKey: ['meals'] });
+      }
       queryClient.invalidateQueries({ queryKey: ['recipe', mealId] });
       setIsEditMode(false);
       setIsDirty(false);
@@ -155,6 +179,12 @@ function RecipeComponent() {
           </IconButton>
         ) : <div />}
       </Box>
+      {pendingRecipe && !recipe && (
+        <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center', gap: 2, alignContent: 'center' }}>
+          <Typography variant="h5" sx={{ m: 0 }}>Pending Recipe Available!</Typography>
+          <Button onClick={handleImportRecipe} variant="contained" sx={{ ml: 1 }}>Import from YouTube</Button>
+        </Box>
+      )}
 
       <form onChange={() => setIsDirty(true)} onSubmit={handleSubmit(onSubmit)}>
         <Box sx={{ mt: 2 }}>
@@ -308,7 +338,7 @@ function RecipeComponent() {
             />
           ) : (
             recipe?.notes ? (
-              <Typography>{recipe.notes}</Typography>
+              <Typography component="pre" sx={{}}>{recipe.notes}</Typography>
             ) : (
               <Typography>No notes stored for this recipe</Typography>
             )

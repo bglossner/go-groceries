@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { db, type Meal, type Tag } from '../db/db';
+import { db, type Meal, type Tag, type Recipe, type PendingRecipe } from '../db/db';
 import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box, Accordion, AccordionSummary, AccordionDetails, Typography, Chip, Autocomplete, createFilterOptions, Container, DialogContentText, Checkbox, ListItemButton, ListItemIcon } from '@mui/material';
 import { useNavigate } from '@tanstack/react-router';
 import { Edit, Delete, ExpandMore, Restaurant, FilterList } from '@mui/icons-material';
@@ -11,7 +11,7 @@ import MealCreationTypeSelection from '../components/MealCreationTypeSelection';
 import FromYoutubeMealCreation from '../components/FromYoutubeMealCreation';
 import FromImagesMealCreation from '../components/FromImagesMealCreation';
 import { mealFormSchema, type MealForm } from '../types/meals';
-import type { MealGenerationDataResponseData } from '../shareable/meals';
+import type { MealGenerationDataInput } from '../shareable/meals';
 
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 
@@ -26,6 +26,7 @@ const Meals: React.FC = () => {
   const [openCreationTypeSelection, setOpenCreationTypeSelection] = useState(false);
   const [creationType, setCreationType] = useState<'manual' | 'youtube' | 'images' | null>(null);
   const [prefilledYoutubeUrl, setPrefilledYoutubeUrl] = useState<string | null>(null);
+  const [pendingRecipeInfo, setPendingRecipeInfo] = useState<Omit<PendingRecipe, 'createdAt'> & { createRecipe: boolean; } | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
   const navigate = useNavigate();
@@ -80,6 +81,11 @@ const Meals: React.FC = () => {
     queryFn: () => db.tags.toArray(),
   });
 
+  const { data: recipes } = useQuery<Recipe[]>({
+    queryKey: ['recipes'],
+    queryFn: () => db.recipes.toArray(),
+  });
+
   const methods = useForm<MealForm>({
     resolver: (values, ctx, options) => {
       const resolver = zodResolver(mealFormSchema) as Resolver<MealForm>;
@@ -99,19 +105,11 @@ const Meals: React.FC = () => {
   const mutation = useMutation({
     mutationFn: async (meal: Meal) => {
       if (meal.id) {
-        return db.meals.put(meal);
+        await db.meals.put(meal);
+        return meal.id;
       } else {
         return db.meals.add(meal);
       }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['meals'] });
-      queryClient.invalidateQueries({ queryKey: ['tags'] });
-      setOpen(false);
-      setSelectedMeal(null);
-      reset();
-      setDiscardConfirmOpen(false);
-      window.scrollTo(0, 0);
     },
   });
 
@@ -155,13 +153,13 @@ const Meals: React.FC = () => {
     }
   };
 
-  const handleMealDataGenerated = (data: MealGenerationDataResponseData, youtubeUrl: string) => {
+  const handleMealDataGenerated = (data: MealGenerationDataInput, youtubeUrl: string, createRecipe: boolean) => {
     setPrefilledYoutubeUrl(youtubeUrl);
-    console.log('HEHE');
+    setPendingRecipeInfo({ id: crypto.randomUUID(), content: data.recipe?.notes, sourceUrl: youtubeUrl, createRecipe });
     methods.reset({
-      name: data.data.name,
-      ingredients: data.data.ingredients.map(ing => ({ name: ing.name, quantity: ing.quantity })),
-      tags: data.data.tags?.map(tagName => ({ name: tagName })) || [],
+      name: data.name,
+      ingredients: data.ingredients.map(ing => ({ name: ing.name, quantity: ing.quantity })),
+      tags: data.tags?.map(tagName => ({ name: tagName })) || [],
     });
     setCreationType('manual');
     setOpen(true);
@@ -211,6 +209,7 @@ const Meals: React.FC = () => {
     const mealPayload: Meal = {
       id: selectedMeal?.id,
       name: data.name.trim(),
+      recipe: pendingRecipeInfo ? pendingRecipeInfo.content : selectedMeal?.recipe,
       ingredients: data.ingredients?.filter(ing => ing.name && ing.name.trim() !== '').map(ing => ({
         name: ing.name!.trim().toLowerCase(),
         quantity: ing.quantity == null ? 1 : Number(ing.quantity!),
@@ -219,7 +218,40 @@ const Meals: React.FC = () => {
       createdAt: selectedMeal?.createdAt || now,
       updatedAt: now,
     };
-    mutation.mutate(mealPayload);
+
+    if (pendingRecipeInfo && !pendingRecipeInfo.createRecipe) {
+      const pendingId = crypto.randomUUID();
+      await db.pendingRecipes.add({
+        id: pendingId,
+        content: pendingRecipeInfo.content,
+        sourceUrl: pendingRecipeInfo.sourceUrl,
+        createdAt: now,
+      });
+      mealPayload.pendingRecipeId = pendingId;
+    }
+
+    mutation.mutate(mealPayload, {
+      onSuccess: (mealId) => {
+        if (pendingRecipeInfo?.createRecipe && mealId) {
+          db.recipes.add({
+            mealId: mealId as number,
+            url: pendingRecipeInfo.sourceUrl,
+            notes: pendingRecipeInfo.content ?? '',
+            images: [],
+          });
+          queryClient.invalidateQueries({ queryKey: ['recipes'] });
+        }
+
+        queryClient.invalidateQueries({ queryKey: ['meals'] });
+        queryClient.invalidateQueries({ queryKey: ['tags'] });
+        setOpen(false);
+        setSelectedMeal(null);
+        reset();
+        setDiscardConfirmOpen(false);
+        window.scrollTo(0, 0);
+        setPendingRecipeInfo(null); // Cleanup
+      }
+    });
   };
 
   const handleDeleteClick = (id: number, name: string) => {
@@ -298,6 +330,9 @@ const Meals: React.FC = () => {
                 <IconButton onClick={() => meal.id && navigate({ to: '/recipe/$mealId', params: { mealId: meal.id.toString() } })}>
                   <Restaurant />
                 </IconButton>
+                {meal.pendingRecipeId && !recipes?.some(r => r.mealId === meal.id) && (
+                  <Chip onClick={() => meal.id && navigate({ to: '/recipe/$mealId', params: { mealId: meal.id.toString() } })} size="small" sx={{ ml: 1 }} label={'Recipe Import Available!'} color='info' />
+                )}
                 <Typography variant="h6" sx={{ mt: 2 }}>Ingredients:</Typography>
                 <List>
                   {meal.ingredients.map((ing, index) => (
@@ -333,9 +368,15 @@ const Meals: React.FC = () => {
         <Dialog open={open} onClose={handleClose}>
           <DialogTitle>{selectedMeal ? 'Edit Meal' : 'Create New Meal'}</DialogTitle>
           {prefilledYoutubeUrl && (
-            <DialogContentText sx={{ px: 3, pt: 2 }}>
-              This meal form was pre-filled from YouTube URL: <a href={prefilledYoutubeUrl} target="_blank" rel="noopener noreferrer">{prefilledYoutubeUrl}</a>
-            </DialogContentText>
+            <>
+              <DialogContentText sx={{ px: 3, pt: 0 }}>
+                This meal form was pre-filled from YouTube URL: <a href={prefilledYoutubeUrl} target="_blank" rel="noopener noreferrer">{prefilledYoutubeUrl}</a>
+              </DialogContentText>
+              {pendingRecipeInfo && !pendingRecipeInfo.createRecipe && (
+                  <DialogContentText sx={{ px: 3, pt: 2 }}>This meal also includes a recipe pending import!</DialogContentText>)}
+              {pendingRecipeInfo && pendingRecipeInfo.createRecipe && (
+                  <DialogContentText sx={{ px: 3, pt: 2 }}>This meal also includes an already imported recipe!</DialogContentText>)}
+            </>
           )}
           <FormProvider {...methods}>
             <form onSubmit={(...args) => { return handleSubmit(onSubmit)(...args);  }}>

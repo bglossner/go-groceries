@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
-import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, TextField, CircularProgress, Box } from '@mui/material';
+import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, TextField, CircularProgress, Box, FormControlLabel, Checkbox } from '@mui/material';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import type { GenerateMealDataRequestInput, MealGenerationDataResponse, MealGenerationDataResponseData } from '../shareable/meals';
+import type { GenerateMealDataRequestInput, MealGenerationDataInput, MealGenerationDataResponse } from '../shareable/meals';
 import type { ErrorResponse } from '../shareable/response';
 import { db, type Tag } from '../db/db';
-// import { YOUTUBE_MOCK_DATA_1 } from '../mocks/youtube';
+// @ts-ignore
+import { YOUTUBE_MOCK_DATA_1 } from '../mocks/youtube';
 
 interface FromYoutubeMealCreationProps {
   open: boolean;
   onClose: () => void;
-  onMealDataGenerated: (data: MealGenerationDataResponseData, youtubeUrl: string) => void;
+  onMealDataGenerated: (data: MealGenerationDataInput, youtubeUrl: string, createRecipe: boolean) => void;
 }
 
 const callYoutubeApi = async (input: GenerateMealDataRequestInput): Promise<MealGenerationDataResponse> => {
@@ -41,6 +42,7 @@ const callYoutubeApi = async (input: GenerateMealDataRequestInput): Promise<Meal
 
 const FromYoutubeMealCreation: React.FC<FromYoutubeMealCreationProps> = ({ open, onClose, onMealDataGenerated }) => {
   const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [createRecipe, setCreateRecipe] = useState(false);
   const { data: tags, isLoading: tagsLoading } = useQuery<Tag[]>({
     queryKey: ['tags'],
     queryFn: () => db.tags.toArray(),
@@ -48,12 +50,15 @@ const FromYoutubeMealCreation: React.FC<FromYoutubeMealCreationProps> = ({ open,
 
   const generateMealDataMutation = useMutation<MealGenerationDataResponse, Error, GenerateMealDataRequestInput>({
     mutationFn: async (input) => {
-      return callYoutubeApi(input);
-      // return YOUTUBE_MOCK_DATA_1;
+      // @ts-ignore
+      // return callYoutubeApi(input);
+      return YOUTUBE_MOCK_DATA_1;
     },
     onSuccess: (data) => {
+      if ('error' in data) throw new Error('API Error. How did we get this far?');
+
       onClose();
-      onMealDataGenerated(data as MealGenerationDataResponseData, youtubeUrl);
+      onMealDataGenerated(data.data, youtubeUrl, createRecipe);
     },
   });
 
@@ -79,15 +84,21 @@ const FromYoutubeMealCreation: React.FC<FromYoutubeMealCreationProps> = ({ open,
           value={youtubeUrl}
           onChange={(e) => setYoutubeUrl(e.target.value)}
         />
-        <Button
-          onClick={handleGenerateMealData}
-          color="primary"
-          variant="contained"
-          disabled={generateMealDataMutation.isPending || tagsLoading || !youtubeUrl}
-          sx={{ mt: 2 }}
-        >
-          {generateMealDataMutation.isPending ? <CircularProgress size={24} /> : 'Generate Meal Data'}
-        </Button>
+        <FormControlLabel
+          control={<Checkbox checked={createRecipe} onChange={(e) => setCreateRecipe(e.target.checked)} />}
+          label="Automagically import recipe"
+          sx={{ mt: 1 }}
+        />
+        <Box sx={{ mt: 2 }}>
+          <Button
+            onClick={handleGenerateMealData}
+            color="primary"
+            variant="contained"
+            disabled={generateMealDataMutation.isPending || tagsLoading || !youtubeUrl}
+          >
+            {generateMealDataMutation.isPending ? <CircularProgress size={24} /> : 'Generate Meal Data'}
+          </Button>
+        </Box>
 
         {generateMealDataMutation.isError && (
           <Typography color="error" sx={{ mt: 2 }}>
