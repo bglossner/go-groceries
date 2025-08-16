@@ -12,6 +12,7 @@ import FromYoutubeMealCreation from '../components/FromYoutubeMealCreation';
 import FromImagesMealCreation from '../components/FromImagesMealCreation';
 import { mealFormSchema, type MealForm } from '../types/meals';
 import type { MealGenerationDataInput } from '../shareable/meals';
+import { mapMealRecipeImagesToRecipeImages } from '../util/images';
 
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 
@@ -162,7 +163,7 @@ const Meals: React.FC = () => {
 
   const handleMealDataGenerated = (data: MealGenerationDataInput, youtubeUrl: string, createRecipe: boolean) => {
     setPrefilledYoutubeUrl(youtubeUrl);
-    setPendingRecipeInfo({ id: crypto.randomUUID(), content: data.recipe?.notes, sourceUrl: youtubeUrl, createRecipe });
+    setPendingRecipeInfo({ id: crypto.randomUUID(), content: data.recipe?.notes, sourceUrl: youtubeUrl, createRecipe, images: data.recipe?.images });
     methods.reset({
       name: data.name,
       ingredients: data.ingredients.map(ing => ({ name: ing.name, quantity: ing.quantity })),
@@ -233,6 +234,7 @@ const Meals: React.FC = () => {
         content: pendingRecipeInfo.content,
         sourceUrl: pendingRecipeInfo.sourceUrl,
         createdAt: now,
+        images: pendingRecipeInfo.images,
       });
       mealPayload.pendingRecipeId = pendingId;
     }
@@ -244,7 +246,7 @@ const Meals: React.FC = () => {
             mealId: mealId as number,
             url: pendingRecipeInfo.sourceUrl,
             notes: pendingRecipeInfo.content ?? '',
-            images: [],
+            images: mapMealRecipeImagesToRecipeImages(pendingRecipeInfo.images),
           });
           queryClient.invalidateQueries({ queryKey: ['recipes'] });
         }

@@ -1,30 +1,6 @@
 import Dexie, { type Table } from 'dexie';
-import { z } from 'zod';
-
-const quantitySchema = z
-  .preprocess((val) => {
-    // Convert empty string to undefined
-    if (val === '') return undefined;
-
-    // Convert string numbers to actual numbers
-    if (typeof val === 'string') {
-      const num = Number(val);
-      return isNaN(num) ? val : num;
-    }
-
-    return val;
-  }, z.union([z.number(), z.undefined()]))
-  .refine((val) => val === undefined || val >= 1, {
-    message: 'Quantity must be at least 1',
-  })
-  .optional();
-
-export const ingredientSchema = z.object({
-  name: z.string().optional().default('').transform((v) => v?.trim()),
-  quantity: quantitySchema,
-});
-
-export type Ingredient = z.infer<typeof ingredientSchema>;
+import { type MealRecipeImage } from '../shareable/meals';
+import type { Ingredient } from '../types/ingredients';
 
 export interface Meal {
   id?: number;
@@ -64,6 +40,7 @@ export interface PendingRecipe {
   content?: string; // The recipe text from the API
   sourceUrl: string;
   createdAt: Date;
+  images?: MealRecipeImage[];
 }
 
 export interface Tag {

@@ -1,9 +1,9 @@
 import { GenerateMealDataInput, AppContext } from "../types";
 import { youtube_v3 } from '@googleapis/youtube';
 import { ContentfulStatusCode } from "hono/utils/http-status";
-import { ModelYouTubeDataExtractor } from "../models/model-interface";
+import { ModelSelector, ModelYouTubeDataExtractor } from "../models/model-interface";
 import { GroqModel } from "../models/groq";
-import type { MealGenerationDataResponse as Response } from '@go-groceries/frontend/meals';
+import type { MealRecipeImage, MealGenerationDataResponse as Response } from '@go-groceries/frontend/meals';
 
 export class ErrorWrapper extends Error {
   statusCode: ContentfulStatusCode;
@@ -70,7 +70,7 @@ const makeCallToYoutube = async (c: AppContext, url: string): Promise<VideoAndCo
     title: responseItem.title,
     description: responseItem.description,
     channelId: responseItem.channelId,
-    thumbnailUrl: responseItem.thumbnails?.standard.url,
+    thumbnailUrl: responseItem.thumbnails?.standard?.url,
     tags: responseItem.tags,
     videoId,
   } satisfies VideoResponseDetails;
@@ -109,7 +109,16 @@ const getVideoIdFromUrl = (url: string): string | undefined => {
 };
 
 const getModel = (): ModelYouTubeDataExtractor => {
-  return new ModelYouTubeDataExtractor(new GroqModel());
+  return new ModelYouTubeDataExtractor(
+    new ModelSelector({
+      defaultClientModel: 'Groq',
+      modelLoader: async (client) => {
+        if (client === 'Groq') {
+          return new GroqModel();
+        }
+      },
+    })
+  );
 };
 
 export default async (c: AppContext) => {
@@ -119,7 +128,7 @@ export default async (c: AppContext) => {
   } catch (err) {
     return c.json({ error: 'Invalid or missing JSON body' }, 400);
   }
-  const { url, availableTags, pass } = body;
+  const { url, availableTags, pass, additionalInput } = body;
 
   if (c.env.ENABLE_PASS !== 'false' && (!pass || pass !== c.env.PASS)) {
     return c.json({ error: 'Invalid pass provided' } satisfies Response, 403);
@@ -138,6 +147,7 @@ export default async (c: AppContext) => {
   let youtubeResponse: Awaited<ReturnType<typeof makeCallToYoutube>>;
   try {
     youtubeResponse = await makeCallToYoutube(c, url);
+    // youtubeResponse = { title: 'd', description: 'd', channelId: 'd', thumbnailUrl: 'd', tags: ['d'], videoId: 'd', commentsByChannel: ['d'] };
   } catch (error: any) {
     if (error instanceof ErrorWrapper) {
       return c.json({ error: error.message } satisfies Response, error.statusCode);
@@ -147,7 +157,9 @@ export default async (c: AppContext) => {
     }
   }
 
-  // console.log('Logging youtubeResponse:', JSON.stringify(youtubeResponse, null, 2));
+  if (additionalInput && additionalInput.type === 'youtube' && additionalInput.logYouTubeResponse) {
+    console.log('Logging youtubeResponse:', JSON.stringify(youtubeResponse, null, 2));
+  }
 
   if (!youtubeResponse.channelId) {
     return c.json({ error: 'No channel ID provided for video...' } satisfies Response, 400);
@@ -158,14 +170,35 @@ export default async (c: AppContext) => {
   }
 
   const model = getModel();
-  const modelOutput = await model.generateMealData(c, {
+  const [modelOutput, error] = await model.generateMealData(c, {
     videoTitle: youtubeResponse.title,
     videoDescription: youtubeResponse.description,
     videoTags: youtubeResponse.tags,
     comments: youtubeResponse.commentsByChannel,
     availableTags,
     videoId: youtubeResponse.videoId,
-  });
+    logModelRequest: additionalInput?.logModelRequestInput ?? false,
+    client: additionalInput?.modelSelection?.client,
+    modelName: additionalInput?.modelSelection?.model,
+  }).then((data) => [data, undefined]).catch((e: any) => [undefined, e]);
+
+  if (error) {
+    if (error instanceof ErrorWrapper) {
+      return c.json({ error: error.message } satisfies Response, error.statusCode);
+    } else {
+      console.error('Unexpected error', error);
+      return c.json({ error: 'An unexpected error occurred.' } satisfies Response, 500);
+    }
+  }
+
+  if (additionalInput?.logModelResponse) {
+    console.log('Model response:', JSON.stringify(modelOutput, null, 2));
+  }
+
+  const recipeImages: MealRecipeImage[] = [];
+  if (youtubeResponse.thumbnailUrl) {
+    recipeImages.push({ type: 'url', url: youtubeResponse.thumbnailUrl });
+  }
 
   return c.json({
     data: {
@@ -175,12 +208,7 @@ export default async (c: AppContext) => {
       recipe: {
         url,
         notes: modelOutput.data.recipe,
-        images: [
-          {
-            type: 'url',
-            url: youtubeResponse.thumbnailUrl,
-          }
-        ]
+        images: recipeImages,
       },
     },
     modelUsed: modelOutput.modelUsed,

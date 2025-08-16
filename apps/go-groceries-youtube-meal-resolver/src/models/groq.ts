@@ -1,8 +1,9 @@
 import Groq, { APIError } from 'groq-sdk';
 import { AppContext } from '../types';
-import { Model, ModelResponse } from './model-interface';
+import { Model, ModelInterfaceOptions, ModelResponse } from './model-interface';
 import { ErrorWrapper } from '../endpoints/generate-meal-data';
 import { CompletionCreateParams } from 'groq-sdk/src/resources/chat.js';
+import { GroqModelName } from '@go-groceries/frontend/meals';
 
 let groqs: { [apiKey: string]: Groq } = {};
 
@@ -104,13 +105,13 @@ const CACHED_RESPONSES = new Map<string, ModelResponse>();
 }; */
 
 type ModelProps = {
-  name: string;
+  name: GroqModelName;
   responseFormat: CompletionCreateParams.ResponseFormatJsonObject | CompletionCreateParams.ResponseFormatJsonSchema
 };
 
 const MODELS_BY_DESIRE = [
-  { name: 'llama-3.3-70b-versatile', responseFormat: { type: 'json_object' } },
   { name: 'moonshotai/kimi-k2-instruct', responseFormat: { type: 'json_object' } },
+  { name: 'llama-3.3-70b-versatile', responseFormat: { type: 'json_object' } },
   { name: 'openai/gpt-oss-120b', responseFormat: { type: 'json_object' } },
   { name: 'llama3-70b-8192', responseFormat: { type: 'json_object' } },
   { name: 'gemma2-9b-it', responseFormat: { type: 'json_object' } },
@@ -134,7 +135,13 @@ const getUsageStatsFromError = (error: APIError): UsageStats => {
 }
 
 export class GroqModel extends Model {
-  async makeRequest(c: AppContext, identifier: string, request: string): Promise<ModelResponse> {
+  getModelName(): string {
+    return 'Groq';
+  }
+
+  async makeRequest(c: AppContext, request: string, options: ModelInterfaceOptions): Promise<ModelResponse> {
+    const { identifier } = options;
+
     let content: string = '';
     let model: string | undefined;
     if (TEMP_CACHED_RESPONSE_MESSAGE.trim() !== '' && false) {
@@ -147,7 +154,7 @@ export class GroqModel extends Model {
       model = 'CachedResponse';
     } else {
       console.log('Loading chat content from model call');
-      const output = await this.makeModelRequest(c, identifier, request);
+      const output = await this.makeModelRequest(c, request, options);
       content = output.content;
       model = output.model;
       CACHED_RESPONSES[identifier] = content;
@@ -160,11 +167,20 @@ export class GroqModel extends Model {
     };
   }
 
-  private async makeModelRequest(c: AppContext, identifier: string, request: string): Promise<{ content: string, model: string }> {
+  private async makeModelRequest(c: AppContext, request: string, options: ModelInterfaceOptions): Promise<{ content: string, model: string }> {
     const model = getGroqInstance(c);
+    const { modelName, identifier } = options;
+
+    if (modelName && MODELS_BY_DESIRE.findIndex(({ name }) => name === modelName) === -1) {
+      throw new ErrorWrapper({ message: `Model instance desired '${modelName}' does not exist for given client`, statusCode: 404 });
+    } else if (modelName) {
+      console.log(`Using model ${modelName} for ${identifier}`);
+    }
 
     let lowestTimeUntilRetry: number | undefined;
-    for (const { name, responseFormat } of MODELS_BY_DESIRE) {
+    const modelsToTry = options.modelName ? MODELS_BY_DESIRE.filter(({ name }) => name === options.modelName) : MODELS_BY_DESIRE;
+    // console.log(modelsToTry);
+    for (const { name, responseFormat } of modelsToTry) {
       try {
         const chatCompletion = await model.chat.completions.create({
           messages: [{ role: 'user', content: request }],

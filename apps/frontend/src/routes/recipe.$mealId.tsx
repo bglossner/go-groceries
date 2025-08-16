@@ -7,7 +7,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useState, useEffect, useRef } from 'react';
 import { recipeSchema, type RecipeForm } from '../types/recipe';
-import { convertFilesToImageBlobs, imageUrlResolver } from '../util/images';
+import { convertFilesToImageBlobs, imageUrlResolver, mapMealRecipeImagesToRecipeImages } from '../util/images';
 
 export const Route = createFileRoute('/recipe/$mealId')({
   component: RecipeComponent,
@@ -93,7 +93,7 @@ function RecipeComponent() {
     reset({
       url: pendingRecipe.sourceUrl,
       notes: pendingRecipe.content,
-      images: [], // No images from pending recipe
+      images: mapMealRecipeImagesToRecipeImages(pendingRecipe.images),
     });
     setIsDirty(true);
   };

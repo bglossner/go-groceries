@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { db, type GroceryList, type Meal, ingredientSchema } from '../db/db';
+import { db, type GroceryList, type Meal } from '../db/db';
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Checkbox, TextField, Typography, Accordion, AccordionSummary, AccordionDetails, Box } from '@mui/material';
 import { Edit, Delete, ExpandMore } from '@mui/icons-material';
 import { useForm, Controller, FormProvider } from 'react-hook-form';
@@ -8,6 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Link } from '@tanstack/react-router';
 import IngredientForm from '../components/IngredientForm';
+import { ingredientSchema } from '../types/ingredients';
 
 const groceryListFormSchema = z.object({
   name: z.string().optional().transform(name => name?.trim()),
@@ -26,7 +27,7 @@ const AggregatedIngredientsDialog: React.FC<{ open: boolean; onClose: () => void
       <List>
         {ingredients.map((ing, index) => (
           <ListItem key={index}>
-            <ListItemText 
+            <ListItemText
               primary={`${capitalize(ing.name)}: ${ing.quantity}`}
               secondary={ing.sources.join(', ')}
             />
@@ -90,7 +91,7 @@ const GroceryListPage: React.FC = () => {
   const mutation = useMutation({
     mutationFn: async (list: Partial<GroceryList>) => {
       const customIngredientsToSave = list.customIngredients?.filter(ing => ing.name && ing.name.trim() !== '') || [];
-      
+
       const previousCustomIngredients = selectedList?.customIngredients || [];
       const previousIngredientNames = new Set(previousCustomIngredients.map(ing => ing.name!.toLowerCase()));
       const currentIngredientNames = new Set(customIngredientsToSave.map(ing => ing.name!.toLowerCase()));
@@ -99,7 +100,7 @@ const GroceryListPage: React.FC = () => {
       if (customIngredientsToSave.length > 0) {
         const existingIngredients = await db.customIngredients.toArray();
         const existingIngredientNames = new Set(existingIngredients.map(i => i.name.toLowerCase()));
-        
+
         for (const newIng of customIngredientsToSave) {
           const lowerCaseName = newIng.name!.toLowerCase();
           if (!existingIngredientNames.has(lowerCaseName)) {

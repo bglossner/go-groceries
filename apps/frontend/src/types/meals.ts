@@ -1,5 +1,5 @@
-import { ingredientSchema } from '../db/db';
 import { z } from 'zod';
+import { ingredientSchema } from './ingredients';
 
 export const mealFormSchema = z.object({
   name: z.string().min(1, 'Meal name is required').transform(name => name.trim()),

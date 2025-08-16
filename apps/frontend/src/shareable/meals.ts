@@ -23,10 +23,29 @@ export type MealGenerationDataInput = Pick<MealForm, 'name' | 'ingredients'> & {
   };
 };
 
+export type GroqModelName = 'moonshotai/kimi-k2-instruct' | 'llama-3.3-70b-versatile' | 'openai/gpt-oss-120b' | 'llama3-70b-8192' | 'gemma2-9b-it' | 'llama3-8b-8192';
+
+export type ModelSelection = {
+  client: 'Groq';
+  model?: GroqModelName;
+};
+
+export type GenerateMealDataRequestAdditionalInput = {
+  logModelResponse?: boolean;
+  logModelRequestInput?: boolean;
+  modelSelection?: ModelSelection
+} & ({
+  type: 'youtube';
+  logYouTubeResponse?: boolean;
+} | {
+  type: 'images';
+});
+
 export interface GenerateMealDataRequestInput {
   url: string;
   availableTags?: string[];
   pass: string;
+  additionalInput?: GenerateMealDataRequestAdditionalInput;
 }
 
 export type MealGenerationDataResponseData = {

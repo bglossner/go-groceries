@@ -2,7 +2,8 @@ import React, { useEffect } from 'react';
 import { useFieldArray, useFormContext, Controller, useWatch, useFormState } from 'react-hook-form';
 import { TextField, IconButton, Box, Typography, Autocomplete, createFilterOptions } from '@mui/material';
 import { RemoveCircleOutline } from '@mui/icons-material';
-import type { Ingredient, CustomIngredient } from '../db/db';
+import type { CustomIngredient } from '../db/db';
+import type { Ingredient } from '../types/ingredients';
 
 // const flexGrowIngreidentNames = 1;
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
