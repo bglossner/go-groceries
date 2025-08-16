@@ -3,7 +3,7 @@ import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import type { GenerateMealDataRequestInput, MealGenerationDataInput, MealGenerationDataResponse } from '../shareable/meals';
 import type { ErrorResponse } from '../shareable/response';
-import { db, type Tag } from '../db/db';
+import { db, type Tag, type Setting } from '../db/db';
 // @ts-ignore
 import { YOUTUBE_MOCK_DATA_1 } from '../mocks/youtube';
 
@@ -49,25 +49,32 @@ const FromYoutubeMealCreation: React.FC<FromYoutubeMealCreationProps> = ({ open,
     queryFn: () => db.tags.toArray(),
   });
 
+  const { data: youtubeApiPassSetting } = useQuery<Setting | undefined>({
+    queryKey: ['settings', 'youtubeApiPass'],
+    queryFn: () => db.settings.get('youtubeApiPass'),
+  });
+
   const generateMealDataMutation = useMutation<MealGenerationDataResponse, Error, GenerateMealDataRequestInput>({
     // @ts-ignore
     mutationFn: async (input) => {
       // @ts-ignore
-      // return callYoutubeApi(input);
-      return YOUTUBE_MOCK_DATA_1;
+      return callYoutubeApi(input);
+      // return YOUTUBE_MOCK_DATA_1;
     },
     onSuccess: (data) => {
-      if ('error' in data) throw new Error('API Error. How did we get this far?');
+      if ('error' in data) throw new Error('API Error. How did we get this far? ' + data.error);
 
       onClose();
       onMealDataGenerated(data.data, youtubeUrl, createRecipe);
     },
   });
 
+  console.log(youtubeApiPassSetting?.value);
   const handleGenerateMealData = () => {
+    const pass = youtubeApiPassSetting?.value || import.meta.env.VITE_YOUTUBE_API_PASS;
     generateMealDataMutation.mutate({
       url: youtubeUrl,
-      pass: import.meta.env.VITE_YOUTUBE_API_PASS,
+      pass: pass,
       availableTags: tags?.map((tag) => tag.name) ?? [],
     });
   };

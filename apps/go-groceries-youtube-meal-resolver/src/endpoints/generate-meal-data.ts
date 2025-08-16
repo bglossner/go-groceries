@@ -175,6 +175,12 @@ export default async (c: AppContext) => {
       recipe: {
         url,
         notes: modelOutput.data.recipe,
+        images: [
+          {
+            type: 'url',
+            url: youtubeResponse.thumbnailUrl,
+          }
+        ]
       },
     },
     modelUsed: modelOutput.modelUsed,

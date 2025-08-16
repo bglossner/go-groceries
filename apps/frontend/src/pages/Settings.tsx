@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Typography, Box, IconButton, Button, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText } from '@mui/material';
+import React, { useState, useEffect } from 'react';
+import { Typography, Box, IconButton, Button, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText, TextField } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { db, type CustomIngredient } from '../db/db';
+import { db, type CustomIngredient, type Setting } from '../db/db';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface RecalcResult {
   changedCounts: { name: string; oldCount: number; newCount: number }[];
@@ -50,6 +51,33 @@ const SettingsPage: React.FC = () => {
 
     setRecalcResult({ changedCounts, deletedIngredients, newIngredients });
     setRecalcModalOpen(true);
+  };
+  const [youtubeApiPass, setYoutubeApiPass] = useState('');
+  const queryClient = useQueryClient();
+
+  const { data: _youtubePassSetting } = useQuery<Setting | undefined>({
+    queryKey: ['settings', 'youtubeApiPass'],
+    queryFn: () => db.settings.get('youtubeApiPass'),
+  });
+
+  useEffect(() => {
+    if (_youtubePassSetting) {
+      setYoutubeApiPass(_youtubePassSetting.value);
+    }
+  }, [_youtubePassSetting]);
+
+  const saveYoutubePassMutation = useMutation({
+    mutationFn: async (pass: string) => {
+      await db.settings.put({ id: 'youtubeApiPass', value: pass });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'youtubeApiPass'] });
+      alert('YouTube API Pass saved!');
+    },
+  });
+
+  const handleSaveYoutubeApiPass = () => {
+    saveYoutubePassMutation.mutate(youtubeApiPass);
   };
 
   const handleRecalcContinue = async () => {
@@ -110,6 +138,23 @@ const SettingsPage: React.FC = () => {
         </Typography>
         <Button variant="contained" onClick={handleRecalc}>
           Recalc Custom Ingredients and Usage
+        </Button>
+      </Box>
+
+      <Box sx={{ mt: 4 }}>
+        <Typography variant="h5" component="h2" gutterBottom>
+          YouTube API Settings
+        </Typography>
+        <TextField
+          label="YouTube API Pass"
+          variant="outlined"
+          fullWidth
+          value={youtubeApiPass}
+          onChange={(e) => setYoutubeApiPass(e.target.value)}
+          sx={{ mb: 2 }}
+        />
+        <Button variant="contained" onClick={handleSaveYoutubeApiPass}>
+          Save YouTube API Pass
         </Button>
       </Box>
 

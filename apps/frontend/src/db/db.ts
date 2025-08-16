@@ -84,6 +84,11 @@ export interface GenerateMealDataOutput {
   tags: Tag[];
 }
 
+export interface Setting {
+  id: string;
+  value: string;
+}
+
 export class MySubClassedDexie extends Dexie {
   meals!: Table<Meal>;
   groceryLists!: Table<GroceryList>;
@@ -92,6 +97,7 @@ export class MySubClassedDexie extends Dexie {
   tags!: Table<Tag>;
   customIngredients!: Table<CustomIngredient>;
   pendingRecipes!: Table<PendingRecipe>;
+  settings!: Table<Setting>;
 
   constructor() {
     super('groceriesHelper');
@@ -103,6 +109,7 @@ export class MySubClassedDexie extends Dexie {
       tags: '++id, name',
       customIngredients: '++id, name, usageCount',
       pendingRecipes: '&id, createdAt',
+      settings: '&id',
     });
   }
 }
