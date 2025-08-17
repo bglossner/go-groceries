@@ -2,6 +2,18 @@ import Dexie, { type Table } from 'dexie';
 import { type MealRecipeImage } from '../shareable/meals';
 import type { Ingredient } from '../types/ingredients';
 
+export type MealImage =  { isThumbnail?: boolean; } & ({
+  type: 'url';
+  url: string;
+} | {
+  type: 'file';
+  file: File;
+} | {
+  type: 'recipeImage';
+  recipeId: number;
+  imageIndex: number;
+});
+
 export interface Meal {
   id?: number;
   name: string;
@@ -11,6 +23,7 @@ export interface Meal {
   createdAt: Date;
   updatedAt: Date;
   pendingRecipeId?: string;
+  images?: MealImage[];
 }
 
 export interface GroceryList {

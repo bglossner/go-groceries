@@ -13,6 +13,7 @@ import FromImagesMealCreation from '../components/FromImagesMealCreation';
 import { mealFormSchema, type MealForm } from '../types/meals';
 import type { MealGenerationDataInput } from '../shareable/meals';
 import { mapMealRecipeImagesToRecipeImages } from '../util/images';
+import EnlargedImage from '../components/EnlargedImage';
 
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 
@@ -36,6 +37,7 @@ const Meals: React.FC = () => {
   const [selectedFilterTags, setSelectedFilterTags] = useState<Tag[]>([]);
   const [sortBy, setSortBy] = useState<'name' | 'createdAt' | 'updatedAt'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const handleFilterDialogOpen = () => {
     setFilterDialogOpen(true);
@@ -331,59 +333,87 @@ const Meals: React.FC = () => {
           const matchesSearch = meal.name.toLowerCase().includes(searchTerm.toLowerCase());
           const matchesTags = selectedFilterTags.every(filterTag => meal.tags?.includes(filterTag.id!));
           return matchesSearch && matchesTags;
-        }).map((meal) => (
-          <Accordion key={meal.id}>
-            <AccordionSummary expandIcon={<ExpandMore />}>
-              <Box sx={{ width: '100%' }}>
-                <Typography variant="h6">{meal.name}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {`Created: ${meal.createdAt ? new Date(meal.createdAt).toLocaleString() : 'N/A'} - Updated: ${meal.updatedAt ? new Date(meal.updatedAt).toLocaleString() : 'N/A'}`}
-                </Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
-                  {meal.tags?.map(tagId => {
-                    const tag = tags?.find(t => t.id === tagId);
-                    return tag ? <Chip key={tag.id} label={tag.name} size="small" /> : null;
-                  })}
-                </Box>
-              </Box>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Box>
-                <IconButton onClick={() => handleClickOpen(meal)}>
-                  <Edit />
-                </IconButton>
-                <IconButton onClick={() => handleDeleteClick(meal.id!, meal.name)}>
-                  <Delete />
-                </IconButton>
-                <IconButton onClick={() => meal.id && navigate({ to: '/recipe/$mealId', params: { mealId: meal.id.toString() } })}>
-                  <Restaurant />
-                </IconButton>
-                {meal.pendingRecipeId && !recipes?.some(r => r.mealId === meal.id) && (
-                  <Chip onClick={() => meal.id && navigate({ to: '/recipe/$mealId', params: { mealId: meal.id.toString() } })} size="small" sx={{ ml: 1 }} label={'Recipe Import Available!'} color='info' />
-                )}
-                <Typography variant="h6" sx={{ mt: 2 }}>Ingredients:</Typography>
-                <List>
-                  {meal.ingredients.map((ing, index) => (
-                    <ListItem key={index}>
-                      <ListItemText primary={`${capitalize(ing.name)}: ${ing.quantity}`} />
-                    </ListItem>
-                  ))}
-                </List>
-                {meal.tags && meal.tags.length > 0 && (
-                    <Box sx={{ mt: 2 }}>
-                      <Typography variant="h6">Tags:</Typography>
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        {meal.tags.map(tagId => {
-                          const tag = tags?.find(t => t.id === tagId);
-                          return tag ? <Chip color="primary" key={tag.id} label={tag.name} /> : null;
-                        })}
-                      </Box>
-                    </Box>
+        }).map((meal) => {
+          const thumbnail = meal.images?.find(img => img.isThumbnail);
+          const recipe = recipes?.find(r => r.mealId === meal.id);
+          let thumbnailUrl: string | null = null;
+          if (thumbnail && thumbnail.type === 'recipeImage' && recipe) {
+            const image = recipe.images[thumbnail.imageIndex];
+            if (typeof image === 'string') {
+              thumbnailUrl = image;
+            } else if (image instanceof File) {
+              thumbnailUrl = URL.createObjectURL(image);
+            }
+          }
+
+          return (
+            <Accordion key={meal.id}>
+              <AccordionSummary expandIcon={<ExpandMore />}>
+                <Box sx={{ width: '100%', display: 'flex', alignItems: 'center' }}>
+                  {thumbnailUrl && (
+                    <img
+                      src={thumbnailUrl}
+                      alt="thumbnail"
+                      width="50"
+                      style={{ marginRight: '10px', cursor: 'pointer' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedImage(thumbnailUrl);
+                      }}
+                    />
                   )}
-              </Box>
-            </AccordionDetails>
-          </Accordion>
-        ))}
+                  <Box>
+                    <Typography variant="h6">{meal.name}</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {`Created: ${meal.createdAt ? new Date(meal.createdAt).toLocaleString() : 'N/A'} - Updated: ${meal.updatedAt ? new Date(meal.updatedAt).toLocaleString() : 'N/A'}`}
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                      {meal.tags?.map(tagId => {
+                        const tag = tags?.find(t => t.id === tagId);
+                        return tag ? <Chip key={tag.id} label={tag.name} size="small" /> : null;
+                      })}
+                    </Box>
+                  </Box>
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Box>
+                  <IconButton onClick={() => handleClickOpen(meal)}>
+                    <Edit />
+                  </IconButton>
+                  <IconButton onClick={() => handleDeleteClick(meal.id!, meal.name)}>
+                    <Delete />
+                  </IconButton>
+                  <IconButton onClick={() => meal.id && navigate({ to: '/recipe/$mealId', params: { mealId: meal.id.toString() } })}>
+                    <Restaurant />
+                  </IconButton>
+                  {meal.pendingRecipeId && !recipes?.some(r => r.mealId === meal.id) && (
+                    <Chip onClick={() => meal.id && navigate({ to: '/recipe/$mealId', params: { mealId: meal.id.toString() } })} size="small" sx={{ ml: 1 }} label={'Recipe Import Available!'} color='info' />
+                  )}
+                  <Typography variant="h6" sx={{ mt: 2 }}>Ingredients:</Typography>
+                  <List>
+                    {meal.ingredients.map((ing, index) => (
+                      <ListItem key={index}>
+                        <ListItemText primary={`${capitalize(ing.name)}: ${ing.quantity}`} />
+                      </ListItem>
+                    ))}
+                  </List>
+                  {meal.tags && meal.tags.length > 0 && (
+                      <Box sx={{ mt: 2 }}>
+                        <Typography variant="h6">Tags:</Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                          {meal.tags.map(tagId => {
+                            const tag = tags?.find(t => t.id === tagId);
+                            return tag ? <Chip color="primary" key={tag.id} label={tag.name} /> : null;
+                          })}
+                        </Box>
+                      </Box>
+                    )}
+                </Box>
+              </AccordionDetails>
+            </Accordion>
+          )
+        })}
       </List>
 
       <MealCreationTypeSelection
@@ -563,16 +593,7 @@ const Meals: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={discardConfirmOpen} onClose={handleCancelDiscard}>
-        <DialogTitle>Discard Changes?</DialogTitle>
-        <DialogContent>
-          <Typography>Are you sure you want to discard any changes?</Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCancelDiscard}>Cancel</Button>
-          <Button onClick={handleDiscardChanges} color="error">Discard</Button>
-        </DialogActions>
-      </Dialog>
+      <EnlargedImage open={!!selectedImage} onClose={() => setSelectedImage(null)} image={selectedImage} />
 
       <Box sx={{ position: 'fixed', bottom: 16, left: 0, right: 0 }}>
         <Container maxWidth="lg">

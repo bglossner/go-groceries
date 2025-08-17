@@ -1,13 +1,14 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { db, type Recipe, type Meal, type PendingRecipe } from '../db/db';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button, TextField, Typography, Box, IconButton, Dialog, DialogActions, DialogContent, DialogTitle } from '@mui/material';
+import { Button, TextField, Typography, Box, IconButton, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Checkbox } from '@mui/material';
 import { Edit, ArrowBack } from '@mui/icons-material';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useState, useEffect, useRef } from 'react';
 import { recipeSchema, type RecipeForm } from '../types/recipe';
 import { convertFilesToImageBlobs, imageUrlResolver, mapMealRecipeImagesToRecipeImages } from '../util/images';
+import EnlargedImage from '../components/EnlargedImage';
 
 export const Route = createFileRoute('/recipe/$mealId')({
   component: RecipeComponent,
@@ -22,8 +23,20 @@ function RecipeComponent() {
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageUrlInput, setImageUrlInput] = useState('');
+  const [imagesToDelete, setImagesToDelete] = useState<number[]>([]);
+  const [thumbnailToUpdate, setThumbnailToUpdate] = useState<{isChecked: boolean, imageIndex: number} | null>(null);
   const initialRecipeExists = useRef<boolean | null>(null);
   const recipeLookedUp = useRef(false);
+
+  const updateMealMutation = useMutation({
+    mutationFn: async (updatedMeal: Meal) => {
+      await db.meals.put(updatedMeal);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meal', mealId] });
+      queryClient.invalidateQueries({ queryKey: ['meals'] });
+    },
+  });
 
   const { data: meal } = useQuery<Meal | undefined>({
     queryKey: ['meal', mealId],
@@ -122,6 +135,65 @@ function RecipeComponent() {
       queryClient.invalidateQueries({ queryKey: ['recipe', mealId] });
       setIsEditMode(false);
       setIsDirty(false);
+
+      if (imagesToDelete.length > 0) {
+        if (!meal || !recipe) return;
+        let updatedMealImages = meal.images ? [...meal.images] : [];
+        imagesToDelete.forEach(imageIndex => {
+          updatedMealImages = updatedMealImages
+            .filter(
+              (mi) =>
+                !(
+                  mi.type === "recipeImage" &&
+                  mi.recipeId === Number(mealId) &&
+                  mi.imageIndex === imageIndex
+                )
+            )
+            .map((mi) => {
+              if (
+                mi.type === "recipeImage" &&
+                mi.recipeId === Number(mealId) &&
+                mi.imageIndex > imageIndex
+              ) {
+                return { ...mi, imageIndex: mi.imageIndex - 1 };
+              }
+              return mi;
+            });
+        });
+        await db.meals.update(meal.id!, { images: updatedMealImages });
+        setImagesToDelete([]);
+      }
+
+      if (thumbnailToUpdate) {
+        if (!meal) return;
+
+        let updatedImages = meal.images ? [...meal.images] : [];
+
+        if (thumbnailToUpdate.isChecked) {
+          updatedImages = updatedImages.filter(image => !image.isThumbnail);
+        }
+
+        const existingImageIndex = updatedImages.findIndex(
+          (img) =>
+            img.type === "recipeImage" &&
+            img.recipeId === Number(mealId) &&
+            img.imageIndex === thumbnailToUpdate.imageIndex
+        );
+
+        if (existingImageIndex !== -1) {
+          updatedImages[existingImageIndex].isThumbnail = thumbnailToUpdate.isChecked;
+        } else if (thumbnailToUpdate.isChecked) {
+          updatedImages.push({
+            type: "recipeImage",
+            recipeId: Number(mealId),
+            imageIndex: thumbnailToUpdate.imageIndex,
+            isThumbnail: true,
+          });
+        }
+
+        updateMealMutation.mutate({ ...meal, images: updatedImages });
+        setThumbnailToUpdate(null);
+      }
     },
   });
 
@@ -158,11 +230,16 @@ function RecipeComponent() {
   const convertPhotoTaken = async (files: File[]) => {
     try {
       return await convertFilesToImageBlobs(files);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error);
       alert(error);
       return [];
     }
+  };
+
+  const handleThumbnailChange = (isChecked: boolean, imageIndex: number) => {
+    setThumbnailToUpdate({ isChecked, imageIndex });
+    setIsDirty(true);
   };
 
   if (isLoading) {
@@ -289,11 +366,40 @@ function RecipeComponent() {
                               const newImages = [...(field.value || [])];
                               newImages.splice(index, 1);
                               field.onChange(newImages);
+                              setImagesToDelete([...imagesToDelete, index]);
                               setIsDirty(true);
                             }}
                           >
                             X
                           </IconButton>
+                          {isEditMode && (
+                            <FormControlLabel
+                              control={
+                                <Checkbox
+                                  checked={
+                                    (thumbnailToUpdate?.imageIndex === index && thumbnailToUpdate?.isChecked) ||
+                                    (meal?.images?.some(
+                                      (mi) =>
+                                        mi.type === "recipeImage" &&
+                                        mi.recipeId === Number(mealId) &&
+                                        mi.imageIndex === index &&
+                                        mi.isThumbnail
+                                    ) && thumbnailToUpdate === null) || false
+                                  }
+                                  onChange={(e) =>
+                                    handleThumbnailChange(e.target.checked, index)
+                                  }
+                                />
+                              }
+                              label="Thumbnail"
+                              sx={{
+                                position: "absolute",
+                                bottom: -35,
+                                left: 0,
+                                backgroundColor: "rgba(255,255,255,0.7)",
+                              }}
+                            />
+                          )}
                         </Box>
                       ))
                     ) : (
@@ -307,7 +413,43 @@ function RecipeComponent() {
             recipe && recipe.images && recipe.images.length > 0 ? (
               <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', flexWrap: 'wrap', p: 1 }}>
                 {recipe.images.map((image: File | string, index: number) => (
-                  <img key={index} src={typeof image === 'string' ? image : URL.createObjectURL(image)} alt={`recipe-${index}`} width="150" style={{ border: '1px solid black' }} onClick={() => setSelectedImage(typeof image === 'string' ? image : URL.createObjectURL(image))} />
+                  <Box key={index} sx={{ position: "relative" }}>
+                    <img
+                      key={index}
+                      src={typeof image === "string" ? image : URL.createObjectURL(image)}
+                      alt={`recipe-${index}`}
+                      width="150"
+                      style={{ border: "1px solid black" }}
+                      onClick={() =>
+                        setSelectedImage(
+                          typeof image === "string"
+                            ? image
+                            : URL.createObjectURL(image)
+                        )
+                      }
+                    />
+                    {meal?.images?.some(
+                      (mi) =>
+                        mi.type === "recipeImage" &&
+                        mi.recipeId === Number(mealId) &&
+                        mi.imageIndex === index &&
+                        mi.isThumbnail
+                    ) && (
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          position: "absolute",
+                          bottom: -25,
+                          left: 0,
+                          backgroundColor: "rgba(0,0,0,0.5)",
+                          color: "white",
+                          p: 0.5,
+                        }}
+                      >
+                        Thumbnail
+                      </Typography>
+                    )}
+                  </Box>
                 ))}
               </Box>
             ) : (
@@ -316,7 +458,7 @@ function RecipeComponent() {
           )}
         </Box>
 
-        <Box sx={{ mt: 2 }}>
+        <Box sx={{ mt: 3 }}>
           <Typography variant="h5">Recipe URL</Typography>
           {isEditMode ? (
             <Controller
@@ -332,12 +474,12 @@ function RecipeComponent() {
                 />
               )}
             />
+          ) : recipe?.url ? (
+            <a href={recipe.url} target="_blank" rel="noopener noreferrer">
+              {recipe.url}
+            </a>
           ) : (
-            recipe?.url ? (
-              <a href={recipe.url} target="_blank" rel="noopener noreferrer">{recipe.url}</a>
-            ) : (
-              <Typography>No URL stored for this recipe</Typography>
-            )
+            <Typography>No URL stored for this recipe</Typography>
           )}
         </Box>
 
@@ -356,43 +498,52 @@ function RecipeComponent() {
                   label="Notes"
                   error={!!errors.notes}
                   helperText={errors.notes?.message}
-                  sx={{ resize: 'both' }}
+                  sx={{ resize: "both" }}
                 />
               )}
             />
+          ) : recipe?.notes ? (
+            <Typography component="pre" sx={{}}>
+              {recipe.notes}
+            </Typography>
           ) : (
-            recipe?.notes ? (
-              <Typography component="pre" sx={{}}>{recipe.notes}</Typography>
-            ) : (
-              <Typography>No notes stored for this recipe</Typography>
-            )
+            <Typography>No notes stored for this recipe</Typography>
           )}
         </Box>
 
         {isEditMode && (
-          <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
-            <Button type="submit" variant="contained">Save</Button>
-            <Button onClick={() => setDiscardConfirmOpen(true)} variant="outlined">Discard</Button>
+          <Box
+            sx={{ mt: 2, display: "flex", justifyContent: "flex-end", gap: 2 }}
+          >
+            <Button type="submit" variant="contained">
+              Save
+            </Button>
+            <Button onClick={() => setDiscardConfirmOpen(true)} variant="outlined">
+              Discard
+            </Button>
           </Box>
         )}
       </form>
 
-      <Dialog open={discardConfirmOpen} onClose={() => setDiscardConfirmOpen(false)}>
+      <Dialog
+        open={discardConfirmOpen}
+        onClose={() => setDiscardConfirmOpen(false)}
+      >
         <DialogTitle>Discard Changes?</DialogTitle>
         <DialogContent>
-          <Typography>You have unsaved changes. Are you sure you want to discard them?</Typography>
+          <Typography>
+            You have unsaved changes. Are you sure you want to discard them?
+          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDiscardConfirmOpen(false)}>Cancel</Button>
-          <Button onClick={handleConfirmDiscard} color="error">Discard</Button>
+          <Button onClick={handleConfirmDiscard} color="error">
+            Discard
+          </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={!!selectedImage} onClose={() => setSelectedImage(null)} maxWidth="md" fullWidth>
-        <DialogContent>
-          {selectedImage && <img src={selectedImage} alt="Enlarged Recipe" style={{ width: '100%', height: 'auto' }} />}
-        </DialogContent>
-      </Dialog>
+      <EnlargedImage open={!!selectedImage} onClose={() => setSelectedImage(null)} image={selectedImage} />
     </Box>
   );
 }

@@ -36,10 +36,12 @@ const deleteDbData = async () => {
     ]);
   });
 
-  await db.transaction('rw',db.tags, db.customIngredients, async () => {
+  await db.transaction('rw',db.tags, db.customIngredients, db.pendingRecipes, db.settings, async () => {
     await Promise.all([
       db.tags.clear(),
       db.customIngredients.clear(),
+      db.pendingRecipes.clear(),
+      db.settings.clear()
     ]);
   });
 };
@@ -80,6 +82,8 @@ function Index() {
       await queryClient.refetchQueries({ queryKey: ['recipes'] });
       await queryClient.refetchQueries({ queryKey: ['tags'] });
       await queryClient.refetchQueries({ queryKey: ['customIngredients'] });
+      await queryClient.refetchQueries({ queryKey: ['pendingRecipes'] });
+      await queryClient.refetchQueries({ queryKey: ['settings'] });
 
       setTimeout(() => {
         setImportModalOpen(false);

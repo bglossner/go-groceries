@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { db, type GroceryList, type Meal } from '../db/db';
+import { db, type GroceryList, type Meal, type Recipe } from '../db/db';
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Checkbox, TextField, Typography, Accordion, AccordionSummary, AccordionDetails, Box } from '@mui/material';
 import { Edit, Delete, ExpandMore } from '@mui/icons-material';
 import { useForm, Controller, FormProvider } from 'react-hook-form';
@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { Link } from '@tanstack/react-router';
 import IngredientForm from '../components/IngredientForm';
 import { ingredientSchema } from '../types/ingredients';
+import EnlargedImage from '../components/EnlargedImage';
 
 const groceryListFormSchema = z.object({
   name: z.string().optional().transform(name => name?.trim()),
@@ -50,6 +51,7 @@ const GroceryListPage: React.FC = () => {
   const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [mealSearchTerm, setMealSearchTerm] = useState('');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const { data: groceryLists } = useQuery({
     queryKey: ['groceryLists'],
@@ -67,6 +69,11 @@ const GroceryListPage: React.FC = () => {
       });
       return allMeals;
     },
+  });
+
+  const { data: recipes } = useQuery<Recipe[]>({
+    queryKey: ['recipes'],
+    queryFn: () => db.recipes.toArray(),
   });
 
   const { data: customIngredients } = useQuery({
@@ -287,7 +294,34 @@ const GroceryListPage: React.FC = () => {
                 <List>
                   {list.meals.map(mealId => {
                     const meal = meals?.find(m => m.id === mealId);
-                    return meal ? <ListItem key={mealId}><ListItemText primary={meal.name} /></ListItem> : null;
+                    const thumbnail = meal?.images?.find(img => img.isThumbnail);
+                    const recipe = recipes?.find(r => r.mealId === meal?.id);
+                    let thumbnailUrl: string | null = null;
+                    if (thumbnail && thumbnail.type === 'recipeImage' && recipe) {
+                      const image = recipe.images[thumbnail.imageIndex];
+                      if (typeof image === 'string') {
+                        thumbnailUrl = image;
+                      } else if (image instanceof File) {
+                        thumbnailUrl = URL.createObjectURL(image);
+                      }
+                    }
+                    return meal ? (
+                      <ListItem key={mealId}>
+                        {thumbnailUrl && (
+                          <img
+                            src={thumbnailUrl}
+                            alt="thumbnail"
+                            width="50"
+                            style={{ marginRight: '10px', cursor: 'pointer' }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedImage(thumbnailUrl);
+                            }}
+                          />
+                        )}
+                        <ListItemText primary={meal.name} />
+                      </ListItem>
+                    ) : null;
                   })}
                   {list.customIngredients?.map((ing, index) => (
                     <ListItem key={`custom-${index}`}><ListItemText primary={`${capitalize(ing.name)}: ${ing.quantity}`} /></ListItem>
@@ -344,23 +378,49 @@ const GroceryListPage: React.FC = () => {
                 control={control}
                 render={({ field }) => (
                   <List>
-                    {meals?.filter(meal => meal.name.toLowerCase().includes(mealSearchTerm.toLowerCase())).map(meal => (
-                      <ListItem key={meal.id} dense component="div" onClick={() => {
-                        const newMeals = field.value?.includes(meal.id!) ?
-                          field.value.filter((id: number) => id !== meal.id!) :
-                          [...(field.value || []), meal.id!];
-                        field.onChange(newMeals);
-                        setMealSearchTerm('');
-                      }}>
-                        <Checkbox
-                          edge="start"
-                          checked={field.value?.includes(meal.id!) || false}
-                          tabIndex={-1}
-                          disableRipple
-                        />
-                        <ListItemText primary={meal.name} />
-                      </ListItem>
-                    ))}
+                    {meals?.filter(meal => meal.name.toLowerCase().includes(mealSearchTerm.toLowerCase())).map(meal => {
+                      const thumbnail = meal.images?.find(img => img.isThumbnail);
+                      const recipe = recipes?.find(r => r.mealId === meal.id);
+                      let thumbnailUrl: string | null = null;
+                      if (thumbnail && thumbnail.type === 'recipeImage' && recipe) {
+                        const image = recipe.images[thumbnail.imageIndex];
+                        if (typeof image === 'string') {
+                          thumbnailUrl = image;
+                        } else if (image instanceof File) {
+                          thumbnailUrl = URL.createObjectURL(image);
+                        }
+                      }
+
+                      return (
+                        <ListItem key={meal.id} dense component="div" onClick={() => {
+                          const newMeals = field.value?.includes(meal.id!) ?
+                            field.value.filter((id: number) => id !== meal.id!) :
+                            [...(field.value || []), meal.id!];
+                          field.onChange(newMeals);
+                          setMealSearchTerm('');
+                        }}>
+                          <Checkbox
+                            edge="start"
+                            checked={field.value?.includes(meal.id!) || false}
+                            tabIndex={-1}
+                            disableRipple
+                          />
+                          {thumbnailUrl && (
+                            <img
+                              src={thumbnailUrl}
+                              alt="thumbnail"
+                              width="50"
+                              style={{ marginRight: '10px', cursor: 'pointer' }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedImage(thumbnailUrl);
+                              }}
+                            />
+                          )}
+                          <ListItemText primary={meal.name} />
+                        </ListItem>
+                      )
+                    })}
                   </List>
                 )}
               />
@@ -399,6 +459,8 @@ const GroceryListPage: React.FC = () => {
           <Button onClick={() => handleFormClose(true)} color="error">Discard</Button>
         </DialogActions>
       </Dialog>
+
+      <EnlargedImage open={!!selectedImage} onClose={() => setSelectedImage(null)} image={selectedImage} />
 
       <Box sx={{ mt: 2, display: 'flex', justifyContent: 'right' }}>
         <Button
