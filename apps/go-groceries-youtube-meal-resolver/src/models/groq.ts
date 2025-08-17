@@ -140,15 +140,16 @@ export class GroqModel extends Model {
   }
 
   async makeRequest(c: AppContext, request: string, options: ModelInterfaceOptions): Promise<ModelResponse> {
-    const { identifier } = options;
+    const { identifier, skipAnyCaching } = options;
+    const respectCache = skipAnyCaching === undefined ? true : !skipAnyCaching;
 
     let content: string = '';
     let model: string | undefined;
-    if (TEMP_CACHED_RESPONSE_MESSAGE.trim() !== '' && false) {
+    if (respectCache && TEMP_CACHED_RESPONSE_MESSAGE.trim() !== '' && false) {
       console.log('Loading chat content from temp cached response');
       content = TEMP_CACHED_RESPONSE_MESSAGE;
       model = 'TempCachedResponse';
-    } else if (identifier in CACHED_RESPONSES) {
+    } else if (respectCache && (identifier in CACHED_RESPONSES)) {
       console.log('Loading chat content from actual cached response');
       content = CACHED_RESPONSES[identifier];
       model = 'CachedResponse';

@@ -180,6 +180,7 @@ export default async (c: AppContext) => {
     logModelRequest: additionalInput?.logModelRequestInput ?? false,
     client: additionalInput?.modelSelection?.client,
     modelName: additionalInput?.modelSelection?.model,
+    skipAnyCaching: additionalInput?.skipAnyCaching,
   }).then((data) => [data, undefined]).catch((e: any) => [undefined, e]);
 
   if (error) {

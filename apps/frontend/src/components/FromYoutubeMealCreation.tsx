@@ -61,6 +61,7 @@ const FromYoutubeMealCreation: React.FC<FromYoutubeMealCreationProps> = ({ open,
   const [logYouTubeResponse, setLogYouTubeResponse] = useState(false);
   const [selectedClient, setSelectedClient] = useState<'Groq' | ''>('');
   const [selectedModel, setSelectedModel] = useState<GroqModelName | ''>('');
+  const [skipAnyCaching, setSkipAnyCaching] = useState(false);
   const { data: tags, isLoading: tagsLoading } = useQuery<Tag[]>({
     queryKey: ['tags'],
     queryFn: () => db.tags.toArray(),
@@ -94,6 +95,7 @@ const FromYoutubeMealCreation: React.FC<FromYoutubeMealCreationProps> = ({ open,
       ...(logModelResponse && { logModelResponse: true }),
       ...(logModelRequestInput && { logModelRequestInput: true }),
       ...(logYouTubeResponse && { logYouTubeResponse: true }),
+      ...(skipAnyCaching && { skipAnyCaching: true }),
       ...(selectedClient && { modelSelection: { client: selectedClient, ...(selectedModel && { model: selectedModel }) } }),
     };
 
@@ -144,6 +146,10 @@ const FromYoutubeMealCreation: React.FC<FromYoutubeMealCreationProps> = ({ open,
             <FormControlLabel
               control={<Checkbox checked={logYouTubeResponse} onChange={(e) => setLogYouTubeResponse(e.target.checked)} />}
               label="Log YouTube Response"
+            />
+            <FormControlLabel
+              control={<Checkbox checked={skipAnyCaching} onChange={(e) => setSkipAnyCaching(e.target.checked)} />}
+              label="Skip Any Caching"
             />
 
             <Typography variant="subtitle1" sx={{ mt: 2 }} gutterBottom>Model Selection</Typography>

@@ -33,7 +33,8 @@ export type ModelSelection = {
 export type GenerateMealDataRequestAdditionalInput = {
   logModelResponse?: boolean;
   logModelRequestInput?: boolean;
-  modelSelection?: ModelSelection
+  modelSelection?: ModelSelection;
+  skipAnyCaching?: boolean;
 } & ({
   type: 'youtube';
   logYouTubeResponse?: boolean;

@@ -25,7 +25,7 @@ export type RequestContentOptions = Pick<GenerateMealDataInput, 'availableTags'>
 
 const commentDelimiter = '|---|';
 
-export type ModelInterfaceOptions = { identifier: string; modelName?: string };
+export type ModelInterfaceOptions = { identifier: string; modelName?: string; skipAnyCaching?: boolean; };
 
 export abstract class Model {
   abstract makeRequest(c: AppContext, request: string, options: ModelInterfaceOptions): Promise<ModelResponse>;
@@ -83,6 +83,7 @@ type GenerateMealDataYouTubeModelOptions = {
   logModelRequest: boolean;
   client?: ModelClient;
   modelName?: string;
+  skipAnyCaching?: boolean;
 }
 
 export class ModelYouTubeDataExtractor {
@@ -117,7 +118,7 @@ export class ModelYouTubeDataExtractor {
     }
     const model = await this.getModel(options);
     console.log(`Using model ${model.getModelName()}. Client: ${options.client ?? 'Default'}`);
-    return await model.makeRequest(c, requestContent, { modelName: options.modelName, identifier: options.videoId });
+    return await model.makeRequest(c, requestContent, { modelName: options.modelName, identifier: options.videoId, skipAnyCaching: options.skipAnyCaching });
   }
 
   private generateRequestContent(options: RequestContentOptions): string {
