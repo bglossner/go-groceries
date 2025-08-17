@@ -5,7 +5,6 @@ import { RemoveCircleOutline } from '@mui/icons-material';
 import type { CustomIngredient } from '../db/db';
 import type { Ingredient } from '../types/ingredients';
 
-// const flexGrowIngreidentNames = 1;
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 
 interface IngredientFormProps {
@@ -73,7 +72,7 @@ const IngredientForm: React.FC<IngredientFormProps> = ({ name, label, customIngr
                   onInputChange={(_event, newInputValue) => {
                     field.onChange(newInputValue);
                   }}
-                  // sx={{ flexGrow: flexGrowIngreidentNames, flexBasis: 0 }}
+                  sx={{ minWidth: '50%', flexBasis: 0 }}
                   renderInput={(params) => (
                     <TextField
                       {...params}
@@ -91,7 +90,7 @@ const IngredientForm: React.FC<IngredientFormProps> = ({ name, label, customIngr
                   margin="dense"
                   label="Ingredient Name"
                   type="text"
-                  // sx={{ flexGrow: flexGrowIngreidentNames }}
+                  sx={{ minWidth: '50%', }}
                   value={capitalize(field.value || '')}
                   onChange={(e) => field.onChange(e.target.value)}
                   onBlur={(e) => {
