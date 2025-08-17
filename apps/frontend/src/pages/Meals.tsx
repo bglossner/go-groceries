@@ -242,15 +242,22 @@ const Meals: React.FC = () => {
     }
 
     mutation.mutate(mealPayload, {
-      onSuccess: (mealId) => {
+      onSuccess: async (mealId) => {
         if (pendingRecipeInfo?.createRecipe && mealId) {
-          db.recipes.add({
+          const images = mapMealRecipeImagesToRecipeImages(pendingRecipeInfo.images);
+          const recipeId = await db.recipes.add({
             mealId: mealId as number,
             url: pendingRecipeInfo.sourceUrl,
             notes: pendingRecipeInfo.content ?? '',
-            images: mapMealRecipeImagesToRecipeImages(pendingRecipeInfo.images),
+            images,
           });
           queryClient.invalidateQueries({ queryKey: ['recipes'] });
+
+          const hasThumbnail = images?.length === 1 && (!mealPayload.images || mealPayload.images.length === 0);
+          if (hasThumbnail) {
+            // The meal was already created, so we need to update it with the thumbnail information.
+            await db.meals.update(mealId, { images: [{ imageIndex: 0, isThumbnail: true, type: 'recipeImage', recipeId }] });
+          }
         }
 
         queryClient.invalidateQueries({ queryKey: ['meals'] });
