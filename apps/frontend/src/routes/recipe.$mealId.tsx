@@ -209,7 +209,7 @@ function RecipeComponent() {
     if (isDirty) {
       setDiscardConfirmOpen(true);
     } else {
-      navigate({ to: '/meals' });
+      navigate({ to: '/meals', search: { mealId } });
     }
   };
 
@@ -255,7 +255,7 @@ function RecipeComponent() {
   }
 
   return (
-    <Box>
+    <Box sx={{ maxWidth: '100vw', whiteSpace: 'normal', wordWrap: 'break-word' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <IconButton onClick={handleBack}>
           <ArrowBack />
@@ -503,7 +503,7 @@ function RecipeComponent() {
               )}
             />
           ) : recipe?.notes ? (
-            <Typography component="pre" sx={{}}>
+            <Typography component="p" sx={{}}>
               {recipe.notes}
             </Typography>
           ) : (

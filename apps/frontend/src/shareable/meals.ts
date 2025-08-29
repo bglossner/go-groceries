@@ -42,11 +42,18 @@ export type GenerateMealDataRequestAdditionalInput = {
   type: 'images';
 });
 
-export interface GenerateMealDataRequestInput {
-  url: string;
+export type GenerateMealDataBaseRequest = {
   availableTags?: string[];
   pass: string;
   additionalInput?: GenerateMealDataRequestAdditionalInput;
+};
+
+export interface GenerateMealDataYoutubeRequestInput extends GenerateMealDataBaseRequest {
+  url: string;
+}
+
+export interface GenerateMealDataImagesRequestInput extends GenerateMealDataBaseRequest {
+  url: string;
 }
 
 export type MealGenerationDataResponseData = {

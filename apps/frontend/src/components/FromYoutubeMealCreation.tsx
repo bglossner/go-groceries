@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, TextField, CircularProgress, Box, FormControlLabel, Checkbox, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import type { GenerateMealDataRequestInput, MealGenerationDataInput, MealGenerationDataResponse, GroqModelName, ModelSelection } from '../shareable/meals';
+import type { GenerateMealDataYoutubeRequestInput, MealGenerationDataInput, MealGenerationDataResponse, GroqModelName, ModelSelection } from '../shareable/meals';
 import type { ErrorResponse } from '../shareable/response';
 import { db, type Tag, type Setting } from '../db/db';
 // @ts-ignore
@@ -72,7 +72,7 @@ const FromYoutubeMealCreation: React.FC<FromYoutubeMealCreationProps> = ({ open,
     queryFn: () => db.settings.get('youtubeApiPass'),
   });
 
-  const generateMealDataMutation = useMutation<MealGenerationDataResponse, Error, GenerateMealDataRequestInput>({
+  const generateMealDataMutation = useMutation<MealGenerationDataResponse, Error, GenerateMealDataYoutubeRequestInput>({
     // @ts-ignore
     mutationFn: async (input) => {
       // @ts-ignore

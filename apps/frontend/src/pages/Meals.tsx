@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type Meal, type Tag, type Recipe, type PendingRecipe } from '../db/db';
 import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box, Accordion, AccordionSummary, AccordionDetails, Typography, Chip, Autocomplete, createFilterOptions, Container, DialogContentText, Checkbox, ListItemButton, ListItemIcon, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
-import { useNavigate } from '@tanstack/react-router';
+import { useLocation, useNavigate } from '@tanstack/react-router';
 import { Edit, Delete, ExpandMore, Restaurant, FilterList, ArrowUpward, ArrowDownward } from '@mui/icons-material';
 import { useForm, Controller, FormProvider, type ResolverOptions, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -32,12 +32,39 @@ const Meals: React.FC = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [selectedFilterTags, setSelectedFilterTags] = useState<Tag[]>([]);
   const [sortBy, setSortBy] = useState<'name' | 'createdAt' | 'updatedAt'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [highlightedMealId, setHighlightedMealId] = useState<number | null>(null);
+  const mealRefs = useRef<Record<number, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const mealId = params.get('mealId');
+    if (mealId) {
+      const numericMealId = Number(mealId);
+      setHighlightedMealId(numericMealId);
+      const mealElement = mealRefs.current[numericMealId];
+      if (mealElement) {
+        setTimeout(() => {
+          const appBar = document.querySelector('header');
+          const appBarHeight = appBar ? appBar.clientHeight : 0;
+          const elementPosition = mealElement.getBoundingClientRect().top;
+          const offsetPosition = elementPosition + window.pageYOffset - appBarHeight;
+
+          window.scrollTo({
+            top: offsetPosition,
+            behavior: 'smooth'
+          });
+        }, 0);
+      }
+      setTimeout(() => setHighlightedMealId(null), 3000);
+    }
+  }, [location.search, mealRefs]);
 
   const handleFilterDialogOpen = () => {
     setFilterDialogOpen(true);
@@ -354,7 +381,7 @@ const Meals: React.FC = () => {
           }
 
           return (
-            <Accordion key={meal.id}>
+            <Accordion key={meal.id} ref={el => mealRefs.current[meal.id!] = el} sx={{ backgroundColor: highlightedMealId === meal.id ? 'yellow' : 'inherit' }}>
               <AccordionSummary expandIcon={<ExpandMore />}>
                 <Box sx={{ width: '100%', display: 'flex', alignItems: 'center' }}>
                   {thumbnailUrl && (
