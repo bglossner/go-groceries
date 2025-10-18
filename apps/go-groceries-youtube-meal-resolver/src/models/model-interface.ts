@@ -1,21 +1,9 @@
-import { ModelSelection } from "@go-groceries/frontend/meals";
+import { Model, ModelInterfaceOptions, ModelResponse, ModelSelector } from "@go-groceries/backend/models";
+import { GenerateMealDataYoutubeRequestInput, ModelSelection } from "@go-groceries/frontend/meals";
 import { ErrorWrapper } from "../endpoints/generate-meal-data";
-import { AppContext, GenerateMealDataInput } from "../types";
+import { AppContext } from "../types";
 
-export type ModelResponse = {
-  data: {
-    mealName: string;
-    ingredients: {
-      name: string;
-      quantity: number;
-    }[];
-    tags: string[];
-    recipe: string;
-  };
-  modelUsed?: string;
-};
-
-export type RequestContentOptions = Pick<GenerateMealDataInput, 'availableTags'> & {
+export type RequestContentOptions = Pick<GenerateMealDataYoutubeRequestInput, 'availableTags'> & {
   videoTitle?: string;
   videoDescription?: string;
   videoTags: string[];
@@ -25,58 +13,14 @@ export type RequestContentOptions = Pick<GenerateMealDataInput, 'availableTags'>
 
 const commentDelimiter = '|---|';
 
-export type ModelInterfaceOptions = { identifier: string; modelName?: string; skipAnyCaching?: boolean; };
-
-export abstract class Model {
+export abstract class YouTubeModel extends Model {
   abstract makeRequest(c: AppContext, request: string, options: ModelInterfaceOptions): Promise<ModelResponse>;
-  abstract getModelName(): string;
 }
 
 export type ModelClient = ModelSelection['client'];
 
-export class ModelSelector {
-  private models = new Map<ModelClient, Model>();
-  private allowClients: ModelClient[];
-  private modelLoader: (client: ModelClient) => Promise<Model>;
-  defaultClient: ModelClient;
+export class YouTubeModelSelector extends ModelSelector<ModelClient, YouTubeModel> {}
 
-  constructor(options: { defaultClientModel: ModelClient; modelLoader: (client: ModelClient) => Promise<Model>; allowClients?: ModelClient[] }) {
-    this.allowClients = options.allowClients;
-    this.modelLoader = options.modelLoader;
-    this.defaultClient = options.defaultClientModel
-  }
-
-  addModel(client: ModelClient, model: Model) {
-    this.models.set(client, model);
-  }
-
-  addModels(models: Partial<Record<ModelClient, Model>>) {
-    for (const [client, model] of Object.entries(models)) {
-      this.addModel(client as ModelClient, model);
-    }
-  }
-
-  async getDefaultModel(): Promise<Model | undefined> {
-    return await this.getModel(this.defaultClient);
-  }
-
-  async getModel(client: ModelClient): Promise<Model | undefined> {
-    if (this.allowClients && !this.allowClients.includes(client)) {
-      return undefined;
-    }
-    if (!this.models.has(client)) {
-      return await this.loadModel(client);
-    }
-    return this.models.get(client);
-  }
-
-  private async loadModel(client: ModelClient) {
-    if (!this.models.has(client)) {
-      this.models.set(client, await this.modelLoader(client));
-    }
-    return this.models.get(client);
-  }
-}
 
 type GenerateMealDataYouTubeModelOptions = {
   videoId: string;
@@ -87,14 +31,14 @@ type GenerateMealDataYouTubeModelOptions = {
 }
 
 export class ModelYouTubeDataExtractor {
-  private modelSelector: ModelSelector;
+  private modelSelector: YouTubeModelSelector;
 
-  constructor(modelSelector: ModelSelector) {
+  constructor(modelSelector: YouTubeModelSelector) {
     this.modelSelector = modelSelector;
   }
 
-  private async getModel(options: GenerateMealDataYouTubeModelOptions): Promise<Model> {
-    let model: Model | undefined;
+  private async getModel(options: GenerateMealDataYouTubeModelOptions): Promise<YouTubeModel> {
+    let model: YouTubeModel | undefined;
     if (options.client) {
       model = await this.modelSelector.getModel(options.client);
       if (!model) {

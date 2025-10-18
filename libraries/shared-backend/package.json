@@ -1,0 +1,35 @@
+{
+  "name": "@go-groceries/backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts"
+    },
+    "./endpoints/error": {
+      "import": "./dist/endpoints/error.js",
+      "types": "./dist/endpoints/error.d.ts"
+    },
+    "./models": {
+      "import": "./dist/models/index.js",
+      "types": "./dist/models/index.d.ts"
+    }
+  },
+  "dependencies": {
+  },
+  "devDependencies": {
+    "@types/node": "22.13.0",
+    "@types/service-worker-mock": "^2.0.4",
+    "typescript": "^5.9.2"
+  },
+  "scripts": {
+    "check-types": "tsc -b",
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}

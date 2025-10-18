@@ -4,6 +4,7 @@ import { TanStackRouterVite } from '@tanstack/router-vite-plugin'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
+// Trigger re-bundle
 export default defineConfig(({ mode }) => {
   const plugins = [react(), TanStackRouterVite()];
   const isPwaMode = mode === 'pwa' || mode === 'pwa-test';
@@ -44,14 +45,24 @@ export default defineConfig(({ mode }) => {
               type: 'image/png',
             },
           ],
-          screenshots: [{
-            src: 'chrome-dev-ss.png',
-            sizes: '399x370',
-            type: 'image/png',
-            form_factor: "narrow",
-            label: "Go Groceries" + (isPwaTestMode ? ' (Test)' : ''),
-            platform: 'android'
-          }],
+          screenshots: [
+            {
+              src: 'chrome-dev-ss.png',
+              sizes: '399x370',
+              type: 'image/png',
+              form_factor: "narrow",
+              label: "Go Groceries" + (isPwaTestMode ? ' (Test)' : ''),
+              platform: 'android'
+            },
+            {
+              src: 'chrome-dev-ss.png',
+              sizes: '399x370',
+              type: 'image/png',
+              form_factor: "narrow",
+              label: "Go Groceries" + (isPwaTestMode ? ' (Test)' : ''),
+              platform: 'ios',
+            }
+          ],
         },
         devOptions: {
           enabled: true,

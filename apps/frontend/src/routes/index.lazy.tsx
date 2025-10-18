@@ -1,56 +1,18 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
 import { Typography, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, CircularProgress } from '@mui/material';
 import React, { useState } from 'react';
-import { db } from '../db/db';
 import { useQueryClient } from '@tanstack/react-query';
-import { exportDB, importDB } from 'dexie-export-import';
+import { exportBlobToFile, getExportBlob } from '../util/db/export';
+import { handleFileImport } from '../util/db/import';
 
 export const Route = createLazyFileRoute('/')({
   component: Index,
 });
 
-const exportBlobToFile = (filename: string, blob: Blob | File) => {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-};
-
 const handleExportNew = async () => {
-  const exportedBlob = await exportDB(db);
+  const exportedBlob = await getExportBlob();
   const file = new File([exportedBlob], `groceries_backupv2_${new Date().toISOString()}.json`, { type: 'application/json' });
   exportBlobToFile(file.name, file);
-};
-
-const deleteDbData = async () => {
-  await db.transaction('rw', db.groceryLists, db.meals, db.groceryListStates, db.recipes, async () => {
-    await Promise.all([
-      db.groceryLists.clear(),
-      db.meals.clear(),
-      db.groceryListStates.clear(),
-      db.recipes.clear(),
-    ]);
-  });
-
-  await db.transaction('rw',db.tags, db.customIngredients, db.pendingRecipes, db.settings, async () => {
-    await Promise.all([
-      db.tags.clear(),
-      db.customIngredients.clear(),
-      db.pendingRecipes.clear(),
-      db.settings.clear()
-    ]);
-  });
-};
-
-const handleImportNew = async (file: File): Promise<void> => {
-  await deleteDbData();
-  await importDB(file, {
-    noTransaction: true,
-  });
 };
 
 function Index() {
@@ -72,7 +34,7 @@ function Index() {
 
     try {
       console.log('Doing new style import');
-      await handleImportNew(file);
+      await handleFileImport(file);
 
       setImportStatus('success');
       // Explicitly refetch all relevant queries
@@ -84,10 +46,13 @@ function Index() {
       await queryClient.refetchQueries({ queryKey: ['customIngredients'] });
       await queryClient.refetchQueries({ queryKey: ['pendingRecipes'] });
       await queryClient.refetchQueries({ queryKey: ['settings'] });
+      await queryClient.refetchQueries({ queryKey: ['stores'] });
+      await queryClient.refetchQueries({ queryKey: ['ingredientStores'] });
 
       setTimeout(() => {
         setImportModalOpen(false);
       }, 500);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       setImportStatus('failure');
       setImportError(error.message || "Unknown error");

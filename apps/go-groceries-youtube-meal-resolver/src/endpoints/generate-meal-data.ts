@@ -1,19 +1,12 @@
 import { GenerateMealDataInput, AppContext } from "../types";
 import { youtube_v3 } from '@googleapis/youtube';
 import { ContentfulStatusCode } from "hono/utils/http-status";
-import { ModelSelector, ModelYouTubeDataExtractor } from "../models/model-interface";
+import { YouTubeModelSelector, ModelYouTubeDataExtractor } from "../models/model-interface";
 import { GroqModel } from "../models/groq";
+import { ErrorWrapper as SharedErrorWrapper } from "@go-groceries/backend/endpoints/error";
 import type { MealRecipeImage, MealGenerationDataResponse as Response } from '@go-groceries/frontend/meals';
 
-export class ErrorWrapper extends Error {
-  statusCode: ContentfulStatusCode;
-
-  constructor({ message, statusCode }: { message: string, statusCode: ContentfulStatusCode }) {
-    super(message);
-    this.name = 'ErrorWrapper';
-    this.statusCode = statusCode;
-  };
-}
+export class ErrorWrapper extends SharedErrorWrapper<ContentfulStatusCode> {}
 
 let youtubes: { [apiKey: string]: youtube_v3.Youtube } = {};
 
@@ -110,12 +103,13 @@ const getVideoIdFromUrl = (url: string): string | undefined => {
 
 const getModel = (): ModelYouTubeDataExtractor => {
   return new ModelYouTubeDataExtractor(
-    new ModelSelector({
+    new YouTubeModelSelector({
       defaultClientModel: 'Groq',
       modelLoader: async (client) => {
         if (client === 'Groq') {
           return new GroqModel();
         }
+        throw new Error(`Unknown client: ${client}`);
       },
     })
   );

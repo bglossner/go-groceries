@@ -4,7 +4,9 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import type { GenerateMealDataYoutubeRequestInput, MealGenerationDataInput, MealGenerationDataResponse, GroqModelName, ModelSelection } from '../shareable/meals';
 import type { ErrorResponse } from '../shareable/response';
 import { db, type Tag, type Setting } from '../db/db';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { YOUTUBE_MOCK_DATA_1 } from '../mocks/youtube';
 
 interface FromYoutubeMealCreationProps {
@@ -13,6 +15,7 @@ interface FromYoutubeMealCreationProps {
   onMealDataGenerated: (data: MealGenerationDataInput, youtubeUrl: string, createRecipe: boolean) => void;
 }
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 const callYoutubeApi = async (input: GenerateMealDataRequestInput): Promise<MealGenerationDataResponse> => {
   const baseUrl = import.meta.env.VITE_YOUTUBE_API_BASE_URL || '';
@@ -24,8 +27,7 @@ const callYoutubeApi = async (input: GenerateMealDataRequestInput): Promise<Meal
     body: JSON.stringify(input),
   });
 
-  let asJson: any;
-  asJson = await response.json().catch((_error) => undefined);
+  const asJson: MealGenerationDataResponse | ErrorResponse = await response.json().catch((_error) => undefined);
 
   if (!response.ok) {
     let message: string;
@@ -43,6 +45,7 @@ const callYoutubeApi = async (input: GenerateMealDataRequestInput): Promise<Meal
 
 const modelOptionsByClient = {
   Groq: [
+    { label: 'moonshotai/kimi-k2-instruct-0905', value: 'moonshotai/kimi-k2-instruct-0905' },
     { label: 'moonshotai/kimi-k2-instruct', value: 'moonshotai/kimi-k2-instruct' },
     { label: 'llama-3.3-70b-versatile', value: 'llama-3.3-70b-versatile' },
     { label: 'openai/gpt-oss-120b', value: 'openai/gpt-oss-120b' },
@@ -73,8 +76,8 @@ const FromYoutubeMealCreation: React.FC<FromYoutubeMealCreationProps> = ({ open,
   });
 
   const generateMealDataMutation = useMutation<MealGenerationDataResponse, Error, GenerateMealDataYoutubeRequestInput>({
-    // @ts-ignore
     mutationFn: async (input) => {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore
       return callYoutubeApi(input);
       // return YOUTUBE_MOCK_DATA_1;

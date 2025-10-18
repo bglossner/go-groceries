@@ -16,3 +16,10 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+.droppable {
+  outline: 2px dashed green;
+}
+.draggable {
+  outline: 2px dotted red;
+}

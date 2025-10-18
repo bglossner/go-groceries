@@ -46,7 +46,7 @@ const IngredientForm: React.FC<IngredientFormProps> = ({ name, label, customIngr
         append({ name: '', quantity: undefined });
       }
     }
-  }, [watchedIngredients, append]);
+  }, [watchedIngredients, append, getValues, name]);
 
   return (
     <Box sx={{ mt: 2 }}>
@@ -109,6 +109,7 @@ const IngredientForm: React.FC<IngredientFormProps> = ({ name, label, customIngr
             render={({ field, fieldState: { error } }) => (
               <TextField
                 {...field}
+                // value={field.value ?? ''}
                 margin="dense"
                 label="Quantity"
                 type="number"

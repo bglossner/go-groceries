@@ -1,13 +1,13 @@
 import { Button } from '@mui/material';
 import { useState, useEffect } from 'react';
 
-export function usePWAInstallPrompt() {
-  const [deferredPrompt, setDeferredPrompt] = useState<any | null>(null);
+function usePWAInstallPrompt() {
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
-    function handler(e: Event) {
+    function handler(e: BeforeInstallPromptEvent) {
       e.preventDefault();
-      setDeferredPrompt(e as any);
+      setDeferredPrompt(e);
     }
 
     window.addEventListener('beforeinstallprompt', handler);
@@ -26,7 +26,7 @@ export default function InstallPWAButton() {
 
     deferredPrompt.prompt();
 
-    deferredPrompt.userChoice.then((choiceResult: any) => {
+    deferredPrompt.userChoice.then((choiceResult) => {
       if (choiceResult.outcome === 'accepted') {
         console.log('User accepted the install prompt');
       } else {

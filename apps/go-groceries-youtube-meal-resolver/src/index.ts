@@ -5,8 +5,6 @@ import { corsHandlerMiddleware, corsEndpoint } from "./endpoints/cors";
 // Start a Hono app
 const app = new Hono<{ Bindings: Env }>();
 
-
-
 app.options('*', corsEndpoint);
 
 app.all('*', corsHandlerMiddleware);

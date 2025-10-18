@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { db, type GroceryList, type Meal, type Recipe } from '../db/db';
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Checkbox, TextField, Typography, Accordion, AccordionSummary, AccordionDetails, Box } from '@mui/material';
+import { db, type GroceryList, type Meal, type Recipe, type Store, type IngredientStore } from '../db/db';
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Checkbox, TextField, Typography, Accordion, AccordionSummary, AccordionDetails, Box, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { Edit, Delete, ExpandMore } from '@mui/icons-material';
 import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -19,28 +19,130 @@ const groceryListFormSchema = z.object({
 
 type GroceryListForm = z.infer<typeof groceryListFormSchema>;
 
-const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
+import { capitalize } from '../util/string';
 
-const AggregatedIngredientsDialog: React.FC<{ open: boolean; onClose: () => void; ingredients: { name: string; quantity: number, sources: string[] }[] }> = ({ open, onClose, ingredients }) => (
-  <Dialog open={open} onClose={onClose}>
-    <DialogTitle>Aggregated Ingredients</DialogTitle>
-    <DialogContent>
-      <List>
-        {ingredients.map((ing, index) => (
-          <ListItem key={index}>
-            <ListItemText
-              primary={`${capitalize(ing.name)}: ${ing.quantity}`}
-              secondary={ing.sources.join(', ')}
-            />
-          </ListItem>
-        ))}
-      </List>
-    </DialogContent>
-    <DialogActions>
-      <Button onClick={onClose}>Close</Button>
-    </DialogActions>
-  </Dialog>
-);
+const AggregatedIngredientsDialog: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  ingredients: { name: string; quantity: number, sources: string[] }[];
+  stores: Store[];
+  ingredientStores: IngredientStore[];
+}> = ({ open, onClose, ingredients, stores, ingredientStores }) => {
+  const [storeFilter, setStoreFilter] = useState<number | 'all'>('all');
+
+  const handleFilterChange = (
+    _: React.MouseEvent<HTMLElement>,
+    newFilter: number | 'all',
+  ) => {
+    if (newFilter !== null) {
+      setStoreFilter(newFilter);
+    }
+  };
+
+  const ingredientsByStore = useMemo(() => {
+    const byStore = new Map<number, { name: string; quantity: number; sources: string[] }[]>();
+    const uncategorized: { name: string; quantity: number; sources: string[] }[] = [];
+
+    ingredients.forEach(ing => {
+      const storeIds = ingredientStores.filter(is => is.ingredientName === ing.name).map(is => is.storeId);
+      if (storeIds.length > 0) {
+        storeIds.forEach(storeId => {
+          if (!byStore.has(storeId)) byStore.set(storeId, []);
+          byStore.get(storeId)!.push(ing);
+        });
+      } else {
+        uncategorized.push(ing);
+      }
+    });
+
+    byStore.forEach(ings => ings.sort((a, b) => a.name.localeCompare(b.name)));
+    uncategorized.sort((a, b) => a.name.localeCompare(b.name));
+
+    return { byStore, uncategorized };
+  }, [ingredients, ingredientStores]);
+
+  const filteredIngredients = useMemo(() => {
+    if (storeFilter === 'all') {
+      return { byStore: ingredientsByStore.byStore, uncategorized: ingredientsByStore.uncategorized };
+    }
+    const filteredByStore = new Map<number, { name: string; quantity: number; sources: string[] }[]>();
+    if (ingredientsByStore.byStore.has(storeFilter)) {
+      filteredByStore.set(storeFilter, ingredientsByStore.byStore.get(storeFilter)!);
+    }
+    return { byStore: filteredByStore, uncategorized: [] };
+  }, [storeFilter, ingredientsByStore]);
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+      <DialogTitle>Aggregated Ingredients</DialogTitle>
+      <DialogContent>
+        <ToggleButtonGroup
+          value={storeFilter}
+          exclusive
+          onChange={handleFilterChange}
+          aria-label="store filter"
+          sx={{ mb: 2 }}
+        >
+          <ToggleButton value="all" aria-label="all stores">
+            All
+          </ToggleButton>
+          {stores.map(store => (
+            store.id && <ToggleButton key={store.id} value={store.id} aria-label={store.name}>
+              {store.name}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+
+        {Array.from(filteredIngredients.byStore.entries()).map(([storeId, ings]) => {
+          const store = stores.find(s => s.id === storeId);
+          return (
+            <Accordion key={storeId} defaultExpanded>
+              <AccordionSummary expandIcon={<ExpandMore />}>
+                <Typography>{store?.name || 'Unknown Store'}</Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <List>
+                  {ings.map((ing, index) => (
+                    <ListItem key={index}>
+                      <ListItemText
+                        primary={`${capitalize(ing.name)}: ${ing.quantity}`}
+                        secondary={ing.sources.join(', ')}
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              </AccordionDetails>
+            </Accordion>
+          );
+        })}
+
+        {filteredIngredients.uncategorized.length > 0 && (
+          <Accordion defaultExpanded>
+            <AccordionSummary expandIcon={<ExpandMore />}>
+              <Typography>Uncategorized</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <List>
+                {filteredIngredients.uncategorized.map((ing, index) => (
+                  <ListItem key={index}>
+                    <ListItemText
+                      primary={`${capitalize(ing.name)}: ${ing.quantity}`}
+                      secondary={ing.sources.join(', ')}
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            </AccordionDetails>
+          </Accordion>
+        )}
+
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
 
 const GroceryListPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -81,7 +183,11 @@ const GroceryListPage: React.FC = () => {
     queryFn: () => db.customIngredients.toArray(),
   });
 
+  const { data: stores } = useQuery({ queryKey: ['stores'], queryFn: () => db.stores.orderBy('name').toArray() });
+  const { data: ingredientStores } = useQuery({ queryKey: ['ingredientStores'], queryFn: () => db.ingredientStores.toArray() });
+
   const methods = useForm<GroceryListForm>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(groceryListFormSchema) as any,
     defaultValues: {
       name: '',
@@ -436,7 +542,13 @@ const GroceryListPage: React.FC = () => {
           </form>
         </FormProvider>
       </Dialog>
-      <AggregatedIngredientsDialog open={!!viewingAggregatedIngredients} onClose={() => setViewingAggregatedIngredients(null)} ingredients={viewingAggregatedIngredients || []} />
+      <AggregatedIngredientsDialog
+        open={!!viewingAggregatedIngredients}
+        onClose={() => setViewingAggregatedIngredients(null)}
+        ingredients={viewingAggregatedIngredients || []}
+        stores={stores || []}
+        ingredientStores={ingredientStores || []}
+      />
 
       <Dialog open={deleteConfirmOpen} onClose={handleCancelDelete}>
         <DialogTitle>Confirm Deletion</DialogTitle>

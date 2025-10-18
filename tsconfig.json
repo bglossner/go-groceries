@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@go-groceries/backend/*": ["libraries/backend/src/*"],
+      "@go-groceries/frontend/*": ["apps/frontend/src/*"]
+    },
+    "lib": ["ESNext", "WebWorker"]
+  }
+}

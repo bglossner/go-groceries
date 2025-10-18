@@ -1,6 +1,7 @@
 import Groq, { APIError } from 'groq-sdk';
 import { AppContext } from '../types';
-import { Model, ModelInterfaceOptions, ModelResponse } from './model-interface';
+import { ModelInterfaceOptions, ModelResponse } from "@go-groceries/backend/models";
+import { YouTubeModel } from "./model-interface";
 import { ErrorWrapper } from '../endpoints/generate-meal-data';
 import { CompletionCreateParams } from 'groq-sdk/src/resources/chat.js';
 import { GroqModelName } from '@go-groceries/frontend/meals';
@@ -110,6 +111,8 @@ type ModelProps = {
 };
 
 const MODELS_BY_DESIRE = [
+  { name: 'moonshotai/kimi-k2-instruct-0905', responseFormat: { type: 'json_object' } },
+  // Deprecated. Should remove if above is working
   { name: 'moonshotai/kimi-k2-instruct', responseFormat: { type: 'json_object' } },
   { name: 'llama-3.3-70b-versatile', responseFormat: { type: 'json_object' } },
   { name: 'openai/gpt-oss-120b', responseFormat: { type: 'json_object' } },
@@ -134,7 +137,7 @@ const getUsageStatsFromError = (error: APIError): UsageStats => {
   };
 }
 
-export class GroqModel extends Model {
+export class GroqModel extends YouTubeModel {
   getModelName(): string {
     return 'Groq';
   }

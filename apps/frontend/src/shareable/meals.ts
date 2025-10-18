@@ -23,7 +23,7 @@ export type MealGenerationDataInput = Pick<MealForm, 'name' | 'ingredients'> & {
   };
 };
 
-export type GroqModelName = 'moonshotai/kimi-k2-instruct' | 'llama-3.3-70b-versatile' | 'openai/gpt-oss-120b' | 'llama3-70b-8192' | 'gemma2-9b-it' | 'llama3-8b-8192';
+export type GroqModelName = 'moonshotai/kimi-k2-instruct-0905' | 'moonshotai/kimi-k2-instruct' | 'llama-3.3-70b-versatile' | 'openai/gpt-oss-120b' | 'llama3-70b-8192' | 'gemma2-9b-it' | 'llama3-8b-8192';
 
 export type ModelSelection = {
   client: 'Groq';

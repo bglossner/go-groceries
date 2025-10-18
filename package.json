@@ -1,6 +1,7 @@
 {
   "private": true,
   "scripts": {
+    "build": "turbo run build"
   },
   "dependencies": {
   },
@@ -9,6 +10,7 @@
   },
   "packageManager": "npm@11.4.2",
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "libraries/*"
   ]
 }

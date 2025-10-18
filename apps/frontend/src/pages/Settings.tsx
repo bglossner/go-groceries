@@ -3,6 +3,7 @@ import { Typography, Box, IconButton, Button, Dialog, DialogTitle, DialogContent
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { db, type CustomIngredient, type Setting } from '../db/db';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { SyncSettings } from '../components/SyncSettings';
 
 interface RecalcResult {
   changedCounts: { name: string; oldCount: number; newCount: number }[];
@@ -157,6 +158,8 @@ const SettingsPage: React.FC = () => {
           Save YouTube API Pass
         </Button>
       </Box>
+
+      <SyncSettings />
 
       <Dialog open={recalcModalOpen} onClose={handleRecalcDiscard}>
         <DialogTitle>Recalculation Results</DialogTitle>
