@@ -2,9 +2,17 @@ import { createRootRoute, Link, Outlet, useNavigate } from '@tanstack/react-rout
 import { AppBar, Toolbar, Typography, Container, Button, Box, IconButton } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings';
 import type React from 'react';
+import { useEffect } from 'react';
 
 const RootComponent: React.FC = () => {
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (window.location.pathname === '/index.html') {
+      navigate({ to: '/', replace: true });
+    }
+  }, [navigate]);
+
   return (
     <>
       <AppBar position="fixed">

@@ -4,6 +4,7 @@
     "build": "turbo run build"
   },
   "dependencies": {
+    "magic-string": "^0.30.19"
   },
   "devDependencies": {
     "turbo": "latest"

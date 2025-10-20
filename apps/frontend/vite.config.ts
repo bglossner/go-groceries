@@ -29,7 +29,7 @@ export default defineConfig(({ mode }) => {
         manifest: {
           name: 'Go Groceries' + (isPwaTestMode ? ' (Test)' : ''),
           short_name: 'Groceries' + (isPwaTestMode ? ' (Test)' : ''),
-          start_url: '/',
+          start_url: '/index.html',
           description: 'A simple groceries helper app',
           display: 'standalone',
           theme_color: '#ffffff',

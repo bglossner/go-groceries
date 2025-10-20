@@ -87,7 +87,7 @@ const AppWrapper = () => {
           await saveSuccessfulSync();
           showSuccessToast('Automatic sync [from] successful! Already latest!');
         } else if (outcome === 'RECENT_SYNC') {
-          await saveSuccessfulSync();
+          await saveSuccessfulSync({ noOpSync: true });
           showSuccessToast('Automatic sync [from] successful! Nothing done because recent sync!');
         }
       }
@@ -105,7 +105,7 @@ const App: React.FC = () => {
         <AppWrapper />
       </DiffsModalProvider>
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} client={queryClient} />}
-      {isMobile &&import.meta.env.DEV && <DebugConsole />}
+      {isMobile && import.meta.env.DEV && <DebugConsole />}
       {!isInstalled && <InstallPWAButton />}
     </QueryClientProvider>
   );

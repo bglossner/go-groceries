@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react';
 
 export const DebugConsole = () => {
-  const [logs, setLogs] = useState<string[]>([])
+  const [logs, setLogs] = useState<string[]>([]);
 
   useEffect(() => {
     const origLog = console.log
@@ -20,7 +20,7 @@ export const DebugConsole = () => {
       console.log = origLog
       console.error = origError
     }
-  }, [])
+  }, []);
 
   return (
     <div style={{

@@ -2,10 +2,14 @@ import { db } from '../db/db';
 import { getPresignedUrlExpirationInfo } from './file/s3-presigned';
 import { type FileRetrievalRequest, type FileRetrievalResponse } from '../shareable/file-retrieval';
 
-export async function saveSuccessfulSync() {
+export async function saveSuccessfulSync(options?: { noOpSync?: boolean; }) {
   const existingSyncFrom = await db.syncs.where('type').equals('from').first();
   if (existingSyncFrom && existingSyncFrom.id) {
-    return await db.syncs.update(existingSyncFrom.id, { lastSyncedAt: new Date() });
+    if (options?.noOpSync) {
+      return existingSyncFrom;
+    } else {
+      return await db.syncs.update(existingSyncFrom.id, { lastSyncedAt: new Date() });
+    }
   } else {
     return undefined;
   }
