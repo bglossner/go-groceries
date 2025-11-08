@@ -164,6 +164,7 @@ const Meals: React.FC = () => {
     if (meal) {
       const mealTags = meal.tags ? await db.tags.bulkGet(meal.tags) : [];
       reset({
+        ...meal,
         name: meal.name,
         ingredients: meal.ingredients.map(ing => ({ name: ing.name, quantity: ing.quantity })),
         tags: mealTags.filter(tag => tag !== undefined) as Tag[],
@@ -244,6 +245,7 @@ const Meals: React.FC = () => {
     }));
 
     const mealPayload: Meal = {
+      ...selectedMeal,
       id: selectedMeal?.id,
       name: data.name.trim(),
       recipe: pendingRecipeInfo ? pendingRecipeInfo.content : selectedMeal?.recipe,
