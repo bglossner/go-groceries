@@ -52,7 +52,7 @@ function RecipeComponent() {
     enabled: !!meal?.pendingRecipeId,
   });
 
-  const { data: recipe, isLoading } = useQuery<Recipe | null>({
+  const { data: recipe, isLoading, isFetched: isRecipeFetched } = useQuery<Recipe | null>({
     queryKey: ['recipe', mealId],
     queryFn: async () => {
       const recipe = (await db.recipes.where('mealId').equals(Number(mealId)).first()) ?? null;
@@ -81,11 +81,13 @@ function RecipeComponent() {
     }
   };
 
+  // Populate form with initial recipe data
   useEffect(() => {
-    if (initialRecipeExists.current !== null && recipeLookedUp.current) {
+    if (!isRecipeFetched || recipeLookedUp.current) {
       return;
     }
 
+    recipeLookedUp.current = true;
     if (recipe) {
       reset({ url: recipe.url, notes: recipe.notes, images: recipe.images });
       initialRecipeExists.current = true;
@@ -95,7 +97,7 @@ function RecipeComponent() {
       setIsEditMode(true);
     }
     setIsDirty(false);
-  }, [recipe, isLoading, reset]);
+  }, [isRecipeFetched, recipe, reset]);
 
   useEffect(() => {
     setImageUrlInput('');

@@ -9,3 +9,5 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+declare const __PWA_TEST_MODE__: boolean;

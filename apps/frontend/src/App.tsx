@@ -104,8 +104,8 @@ const App: React.FC = () => {
       <DiffsModalProvider>
         <AppWrapper />
       </DiffsModalProvider>
-      {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} client={queryClient} />}
-      {isMobile && import.meta.env.DEV && <DebugConsole />}
+      {(import.meta.env.DEV || __PWA_TEST_MODE__) && <ReactQueryDevtools initialIsOpen={false} client={queryClient} />}
+      {isMobile && (import.meta.env.DEV || __PWA_TEST_MODE__) && <DebugConsole />}
       {!isInstalled && <InstallPWAButton />}
     </QueryClientProvider>
   );

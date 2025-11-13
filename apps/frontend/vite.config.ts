@@ -93,5 +93,8 @@ export default defineConfig(({ mode }) => {
     esbuild: {
       drop: [],
     },
+    define: {
+      __PWA_TEST_MODE__: JSON.stringify(isPwaMode && isPwaTestMode),
+    },
   };
 });
