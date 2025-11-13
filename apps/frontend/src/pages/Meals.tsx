@@ -429,7 +429,7 @@ const Meals: React.FC = () => {
                   <Typography variant="h6" sx={{ mt: 2 }}>Ingredients:</Typography>
                   <List>
                     {meal.ingredients.map((ing, index) => (
-                      <ListItem key={index}>
+                      <ListItem key={index} sx={{ paddingBottom: 0, paddingTop: 0 }}>
                         <ListItemText primary={`${capitalize(ing.name)}: ${ing.quantity}`} />
                       </ListItem>
                     ))}
