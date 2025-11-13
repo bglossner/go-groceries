@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type GroceryList, type Meal, type Recipe, type Store, type IngredientStore } from '../db/db';
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Checkbox, TextField, Typography, Accordion, AccordionSummary, AccordionDetails, Box, ToggleButtonGroup, ToggleButton } from '@mui/material';
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Checkbox, TextField, Typography, Accordion, AccordionSummary, AccordionDetails, Box, ToggleButtonGroup, ToggleButton, Container } from '@mui/material';
 import { Edit, Delete, ExpandMore } from '@mui/icons-material';
 import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -574,13 +574,17 @@ const GroceryListPage: React.FC = () => {
 
       <EnlargedImage open={!!selectedImage} onClose={() => setSelectedImage(null)} image={selectedImage} />
 
-      <Box sx={{ mt: 2, display: 'flex', justifyContent: 'right' }}>
-        <Button
-          variant="contained"
-          onClick={() => handleClickOpen()}
-        >
-          Create New Grocery List
-        </Button>
+      <Box sx={{ position: 'fixed', bottom: 16, left: 0, right: 0 }}>
+        <Container maxWidth="lg">
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button
+              variant="contained"
+              onClick={() => handleClickOpen()}
+            >
+              Create New Grocery List
+            </Button>
+          </Box>
+        </Container>
       </Box>
     </div>
   );
