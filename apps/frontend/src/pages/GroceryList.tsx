@@ -10,6 +10,7 @@ import { Link } from '@tanstack/react-router';
 import IngredientForm from '../components/IngredientForm';
 import { ingredientSchema } from '../types/ingredients';
 import EnlargedImage from '../components/EnlargedImage';
+import { useSetLastEditedGroceryListId } from '../hooks/useSetLastEditedGroceryListId';
 
 const groceryListFormSchema = z.object({
   name: z.string().optional().transform(name => name?.trim()),
@@ -201,6 +202,8 @@ const GroceryListPage: React.FC = () => {
   const watchedMeals = watch("meals", []);
   const watchedCustomIngredients = watch("customIngredients");
 
+  const setLastEditedListIdMutation = useSetLastEditedGroceryListId();
+
   const mutation = useMutation({
     mutationFn: async (list: Partial<GroceryList>) => {
       const customIngredientsToSave = list.customIngredients?.filter(ing => ing.name && ing.name.trim() !== '') || [];
@@ -252,7 +255,8 @@ const GroceryListPage: React.FC = () => {
         });
       }
     },
-    onSuccess: () => {
+    onSuccess: (id) => {
+      setLastEditedListIdMutation.mutate(id);
       queryClient.invalidateQueries({ queryKey: ['groceryLists'] });
       queryClient.invalidateQueries({ queryKey: ['customIngredients'] });
       setFormOpen(false);

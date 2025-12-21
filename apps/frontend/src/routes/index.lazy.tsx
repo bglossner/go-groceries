@@ -1,9 +1,11 @@
-import { createLazyFileRoute } from '@tanstack/react-router';
+import { createLazyFileRoute, Link } from '@tanstack/react-router';
 import { Typography, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, CircularProgress } from '@mui/material';
 import React, { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { exportBlobToFile, getExportBlob } from '../util/db/export';
 import { handleFileImport } from '../util/db/import';
+import { getLastEditedGroceryListId } from '../util/db/settings';
+import { db, type GroceryList } from '../db/db';
 
 export const Route = createLazyFileRoute('/')({
   component: Index,
@@ -20,6 +22,17 @@ function Index() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importStatus, setImportStatus] = useState<'idle' | 'loading' | 'success' | 'failure'>('idle');
   const [importError, setImportError] = useState<string | null>(null);
+  
+  const { data: lastEditedGroceryListId } = useQuery({
+    queryKey: ['lastEditedGroceryListId'],
+    queryFn: getLastEditedGroceryListId,
+  });
+
+  const { data: lastEditedGroceryList } = useQuery<GroceryList | undefined>({
+    queryKey: ['groceryList', lastEditedGroceryListId],
+    queryFn: () => db.groceryLists.get(lastEditedGroceryListId!),
+    enabled: !!lastEditedGroceryListId,
+  });
 
   const handleExport = async () => {
     await handleExportNew();
@@ -111,6 +124,18 @@ function Index() {
           )}
         </DialogActions>
       </Dialog>
+
+      {lastEditedGroceryListId && lastEditedGroceryList && (
+        <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center', gap: 2 }}>
+          <Link to="/go-grocery" search={{ groceryListId: lastEditedGroceryListId }}>
+            <Button
+              variant="contained"
+            >
+              Go to Last Edited List: {lastEditedGroceryList.name}
+            </Button>
+          </Link>
+        </Box>
+      )}
 
       <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center', gap: 2 }}>
         <Button

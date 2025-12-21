@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type GroceryList, type Meal, type GroceryListState } from '../db/db';
+import { useSetLastEditedGroceryListId } from '../hooks/useSetLastEditedGroceryListId';
 import { List, ListItem, ListItemText, Checkbox, Typography, Button, Divider, Box, Dialog, DialogTitle, DialogContent, DialogActions, TextField } from '@mui/material';
 
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
@@ -9,6 +10,7 @@ export const GroceryListContainer: React.FC<{ groceryListId: number }> = ({ groc
   const queryClient = useQueryClient();
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const setLastEditedListIdMutation = useSetLastEditedGroceryListId();
 
   const { data: groceryList } = useQuery<GroceryList | undefined>({
     queryKey: ['groceryList', groceryListId],
@@ -88,6 +90,7 @@ export const GroceryListContainer: React.FC<{ groceryListId: number }> = ({ groc
     const checked = groceryListState?.checkedIngredients || [];
     const newChecked = checked.includes(ingredientName) ? checked.filter(i => i !== ingredientName) : [...checked, ingredientName];
     mutation.mutate(newChecked);
+    setLastEditedListIdMutation.mutate(groceryListId);
     setSearchTerm('');
   };
 

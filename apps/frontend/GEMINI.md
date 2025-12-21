@@ -64,3 +64,33 @@ If this file changes, treat it like a contract update. Review it carefully.
 ---
 
 Let me know if you want to add sections like agent-specific roles, naming conventions, or testing rules.
+
+## ✨ Query Invalidation Best Practices
+
+When a database value that is being fetched by `react-query` is updated, it is crucial to invalidate the corresponding query to ensure that all consuming components refetch the latest data.
+
+*   **When to invalidate:** Invalidate a query immediately after a successful mutation (create, update, delete) that affects the data represented by that query.
+*   **How to invalidate:** Use `queryClient.invalidateQueries` within the `onSuccess` callback of your `useMutation` hook.
+*   **Refetch Type:** Always specify `refetchType: 'active'` (or the default behavior in `react-query` v5+) to ensure that only actively rendered components' queries are refetched, optimizing performance.
+
+**Example:**
+When updating the `lastEditedGroceryListId` (which is fetched by the `['lastEditedGroceryListId']` query), the mutation responsible for setting this ID should include:
+
+```typescript
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { setLastEditedGroceryListId } from '../util/db/settings';
+
+export const useSetLastEditedGroceryListId = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: number) => setLastEditedGroceryListId(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ['lastEditedGroceryListId'],
+        refetchType: 'active',
+      });
+    },
+  });
+};
+```
