@@ -15,7 +15,7 @@ const AddToGroceryListModal: React.FC<AddToGroceryListModalProps> = ({ open, onC
 
   const { data: groceryLists } = useQuery<GroceryList[]>({
     queryKey: ['groceryLists'],
-    queryFn: () => db.groceryLists.toArray(),
+    queryFn: () => db.groceryLists.orderBy('createdAt').reverse().toArray(),
   });
 
   const eligibleGroceryLists = useMemo(() => {
@@ -39,7 +39,7 @@ const AddToGroceryListModal: React.FC<AddToGroceryListModalProps> = ({ open, onC
     mutationFn: async (name: string) => {
       if (!meal) return;
       const newGroceryList: Omit<GroceryList, 'id'> = {
-        name: name || new Date().toLocaleString(),
+        name: name || new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }),
         meals: [meal.id!],
         createdAt: new Date(),
       };
@@ -65,11 +65,14 @@ const AddToGroceryListModal: React.FC<AddToGroceryListModalProps> = ({ open, onC
         <Typography variant="h6">Select an existing list</Typography>
         <List sx={{ maxHeight: 200, overflow: 'auto' }}>
           {eligibleGroceryLists.map(list => (
-            <ListItem key={list.id} disablePadding>
-              <ListItemButton onClick={() => addToExistingListMutation.mutate(list)}>
-                <ListItemText primary={list.name} />
-              </ListItemButton>
-            </ListItem>
+            <React.Fragment key={list.id}>
+              <ListItem disablePadding>
+                <ListItemButton onClick={() => addToExistingListMutation.mutate(list)}>
+                  <ListItemText primary={list.name} />
+                </ListItemButton>
+              </ListItem>
+              <Divider />
+            </React.Fragment>
           ))}
           {eligibleGroceryLists.length === 0 && (
             <ListItem>
