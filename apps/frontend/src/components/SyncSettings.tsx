@@ -98,7 +98,7 @@ export const SyncSettings: React.FC = () => {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['syncTo'] });
+      queryClient.invalidateQueries({ queryKey: ['syncTo'], refetchType: 'active' });
     },
   });
 

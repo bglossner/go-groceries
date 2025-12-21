@@ -159,11 +159,12 @@ export const INCLUDE_TABLES =  [
   db.ingredientStores.name,
 ] as const;
 
+const ADDITIONAL_EXCLUDE_TABLES = [db.groceryListStates.name];
 const attachGlobalMutationHooks = (db: Dexie) => {
   const methodsToHook = ['put', 'add', 'delete', 'update'] as const satisfies (keyof Table)[];
 
   db.tables.forEach(table => {
-    if (!INCLUDE_TABLES.includes(table.name)) {
+    if (!INCLUDE_TABLES.includes(table.name) || ADDITIONAL_EXCLUDE_TABLES.includes(table.name)) {
       return;
     }
 
