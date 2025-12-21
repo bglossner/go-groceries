@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type Meal, type Tag, type Recipe, type PendingRecipe } from '../db/db';
 import { Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Box, Accordion, AccordionSummary, AccordionDetails, Typography, Chip, Autocomplete, createFilterOptions, Container, DialogContentText, Checkbox, ListItemButton, ListItemIcon, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
 import { useLocation, useNavigate } from '@tanstack/react-router';
-import { Edit, Delete, ExpandMore, Restaurant, FilterList, ArrowUpward, ArrowDownward } from '@mui/icons-material';
+import { Edit, Delete, ExpandMore, Restaurant, FilterList, ArrowUpward, ArrowDownward, PlaylistAdd } from '@mui/icons-material';
 import { useForm, Controller, FormProvider, type ResolverOptions, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import IngredientForm from '../components/IngredientForm';
@@ -14,6 +14,7 @@ import { mealFormSchema, type MealForm } from '../types/meals';
 import type { MealGenerationDataInput } from '../shareable/meals';
 import { mapMealRecipeImagesToRecipeImages } from '../util/images';
 import EnlargedImage from '../components/EnlargedImage';
+import AddToGroceryListModal from '../components/AddToGroceryListModal';
 
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 
@@ -31,6 +32,8 @@ const Meals: React.FC = () => {
   const [pendingRecipeInfo, setPendingRecipeInfo] = useState<Omit<PendingRecipe, 'createdAt'> & { createRecipe: boolean; } | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
+  const [addToGroceryListModalOpen, setAddToGroceryListModalOpen] = useState(false);
+  const [mealForGroceryList, setMealForGroceryList] = useState<Meal | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const [searchTerm, setSearchTerm] = useState('');
@@ -201,6 +204,11 @@ const Meals: React.FC = () => {
     });
     setCreationType('manual');
     setOpen(true);
+  };
+
+  const handleOpenAddToGroceryList = (meal: Meal) => {
+    setMealForGroceryList(meal);
+    setAddToGroceryListModalOpen(true);
   };
 
   const handleClose = (event?: object, reason?: "backdropClick" | "escapeKeyDown", discardChanges = false) => {
@@ -420,6 +428,9 @@ const Meals: React.FC = () => {
                   <IconButton onClick={() => handleDeleteClick(meal.id!, meal.name)}>
                     <Delete />
                   </IconButton>
+                  <IconButton onClick={() => handleOpenAddToGroceryList(meal)}>
+                    <PlaylistAdd />
+                  </IconButton>
                   <IconButton onClick={() => meal.id && navigate({ to: '/recipe/$mealId', params: { mealId: meal.id.toString() } })}>
                     <Restaurant />
                   </IconButton>
@@ -630,6 +641,12 @@ const Meals: React.FC = () => {
       </Dialog>
 
       <EnlargedImage open={!!selectedImage} onClose={() => setSelectedImage(null)} image={selectedImage} />
+
+      <AddToGroceryListModal
+        open={addToGroceryListModalOpen}
+        onClose={() => setAddToGroceryListModalOpen(false)}
+        meal={mealForGroceryList}
+      />
 
       <Box sx={{ position: 'fixed', bottom: 16, left: 0, right: 0 }}>
         <Container maxWidth="lg">
