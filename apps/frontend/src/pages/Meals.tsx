@@ -409,7 +409,7 @@ const Meals: React.FC = () => {
                   <Box>
                     <Typography variant="h6">{meal.name}</Typography>
                     <Typography variant="body2" color="text.secondary">
-                      {`Created: ${meal.createdAt ? new Date(meal.createdAt).toLocaleString() : 'N/A'} - Updated: ${meal.updatedAt ? new Date(meal.updatedAt).toLocaleString() : 'N/A'}`}
+                      {`Created: ${meal.createdAt ? new Date(meal.createdAt).toLocaleDateString() : 'N/A'} - Updated: ${meal.updatedAt ? new Date(meal.updatedAt).toLocaleDateString() : 'N/A'}`}
                     </Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
                       {meal.tags?.map(tagId => {

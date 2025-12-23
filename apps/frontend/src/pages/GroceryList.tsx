@@ -387,7 +387,7 @@ const GroceryListPage: React.FC = () => {
         {groceryLists?.map((list) => (
           <Accordion key={list.id}>
             <AccordionSummary expandIcon={<ExpandMore />}>
-              <ListItemText primary={list.name} secondary={new Date(list.createdAt).toLocaleString()} />
+              <ListItemText primary={list.name} secondary={new Date(list.createdAt).toLocaleDateString()} />
             </AccordionSummary>
             <AccordionDetails>
               <Box>
