@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import { type MealRecipeImage } from '../shareable/meals';
 import type { Ingredient } from '../types/ingredients';
 import { useMutationQueueStore } from '../store/mutationQueueStore';
+import { addDateConverterHooks } from './date-converter';
 
 export type MealImage = { isThumbnail?: boolean; } & ({
   type: 'url';
@@ -133,6 +134,42 @@ export class MySubClassedDexie extends Dexie {
       ingredientStores: '++id, &[ingredientName+storeId], storeId',
       syncs: '++id, type, createdAt',
     });
+    this.version(14).stores({
+      meals: '++id, name, createdAt, updatedAt, *tags, pendingRecipeId',
+      groceryLists: '++id, name, createdAt',
+      groceryListStates: '++id, groceryListId',
+      recipes: '++id, mealId',
+      tags: '++id, name',
+      customIngredients: '++id, name, usageCount',
+      pendingRecipes: '&id, createdAt',
+      settings: '&id',
+      stores: '++id, name, &color',
+      ingredientStores: '++id, &[ingredientName+storeId], storeId',
+      syncs: '++id, type, createdAt',
+    }).upgrade(tx => {
+      const toIsoString = (date: string | number | Date | null | undefined) => {
+        if (!date) return date;
+        return new Date(date).toISOString();
+      }
+
+      return Promise.all([
+        tx.table('meals').toCollection().modify(meal => {
+          meal.createdAt = toIsoString(meal.createdAt);
+          meal.updatedAt = toIsoString(meal.updatedAt);
+        }),
+        tx.table('groceryLists').toCollection().modify(list => {
+          list.createdAt = toIsoString(list.createdAt);
+        }),
+        tx.table('pendingRecipes').toCollection().modify(recipe => {
+          recipe.createdAt = toIsoString(recipe.createdAt);
+        }),
+        tx.table('syncs').toCollection().modify(sync => {
+          sync.createdAt = toIsoString(sync.createdAt);
+          sync.lastSyncedAt = toIsoString(sync.lastSyncedAt);
+          sync.expiresAt = toIsoString(sync.expiresAt);
+        })
+      ]);
+    });
   }
 }
 
@@ -146,6 +183,7 @@ export type OnMutationArgs = {
 };
 
 const db = new MySubClassedDexie();
+addDateConverterHooks(db);
 
 export const INCLUDE_TABLES =  [
   db.meals.name,
