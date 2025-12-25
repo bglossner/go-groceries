@@ -10,9 +10,12 @@ import { DebugConsole } from './pages/DebugConsole';
 import InstallPWAButton from './components/InstallPWAButton';
 import { checkAndTriggerAutoSync, saveSuccessfulSync } from './util/sync-from';
 import { DiffsModalProvider } from './contexts/DiffsModalProvider';
+import { ToastProvider } from './contexts/ToastProvider';
 import { useDiffsModal } from './hooks/useDiffsModal';
+import { useToast } from './hooks/useToast';
 import { checkAndTriggerAutoSyncTo } from './util/sync-to';
 import { useDebouncedSync } from './hooks/useDebouncedSync';
+import { useServiceWorkerUpdate } from './hooks/useSWUpdate';
 
 // Create a new router instance
 const router = createRouter({ routeTree });
@@ -30,7 +33,10 @@ const isInstalled = window.matchMedia('(display-mode: standalone)').matches;
 
 const AppWrapper = () => {
   useDebouncedSync(); // Call the debounced sync hook
-  const { openDiffsModal, showSuccessToast, showErrorToast } = useDiffsModal();
+  const { openDiffsModal } = useDiffsModal();
+  const { showSuccessToast, showErrorToast } = useToast();
+
+  useServiceWorkerUpdate();
 
   const { data, isLoading } = useQuery({
     queryKey: ['checkSyncFromData'],
@@ -101,9 +107,11 @@ const AppWrapper = () => {
 const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
-      <DiffsModalProvider>
-        <AppWrapper />
-      </DiffsModalProvider>
+      <ToastProvider>
+        <DiffsModalProvider>
+          <AppWrapper />
+        </DiffsModalProvider>
+      </ToastProvider>
       {(import.meta.env.DEV || __PWA_TEST_MODE__) && <ReactQueryDevtools initialIsOpen={false} client={queryClient} />}
       {isMobile && (import.meta.env.DEV || __PWA_TEST_MODE__) && <DebugConsole />}
       {!isInstalled && <InstallPWAButton />}

@@ -29,9 +29,9 @@ const RootComponent: React.FC = () => {
           <Button color="inherit" component={Link} to="/grocery-list">
             Lists
           </Button>
-          {/* <Button color="inherit" component={Link} to="/manage-stores">
+          <Button color="inherit" component={Link} to="/manage-stores">
             Stores
-          </Button> */}
+          </Button>
           <IconButton color="inherit" onClick={() => navigate({ to: '/settings' })}>
             <SettingsIcon />
           </IconButton>

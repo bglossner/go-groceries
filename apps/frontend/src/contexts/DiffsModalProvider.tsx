@@ -1,16 +1,11 @@
 import React, { useState, type ReactNode, useCallback } from 'react';
-import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Box, List, ListItem, Snackbar, Alert } from '@mui/material';
+import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Box, List, ListItem } from '@mui/material';
 import { handleFileImport } from '../util/db/import';
 import { useQueryClient } from '@tanstack/react-query';
 import { type Meal } from '../db/db';
 import { DiffsModalContext } from './DiffsModalContext';
 import { saveSuccessfulSync } from '../util/sync-from';
-
-interface Toast {
-  id: string;
-  message: string;
-  type: 'success' | 'error';
-}
+import { useToast } from '../hooks/useToast';
 
 export const DiffsModalProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const queryClient = useQueryClient();
@@ -18,10 +13,7 @@ export const DiffsModalProvider: React.FC<{ children: ReactNode }> = ({ children
   const [diffs, setDiffs] = useState<{ mealDiffs: { toAdd: Meal[], toRemove: Meal[] } } | null>(null);
   const [importBlob, setImportBlob] = useState<Blob | null>(null);
   const [onConfirm, setOnConfirm] = useState<(() => void) | null>(null);
-
-  const TOAST_DURATION = 5000; // milliseconds
-
-  const [toastMessages, setToastMessages] = useState<Toast[]>([]);
+  const { showSuccessToast, showErrorToast } = useToast();
 
   const openDiffsModal = useCallback((diffsData: { mealDiffs: { toAdd: Meal[], toRemove: Meal[] } }, blob: Blob, onConfirm: () => void) => {
     setDiffs(diffsData);
@@ -36,13 +28,6 @@ export const DiffsModalProvider: React.FC<{ children: ReactNode }> = ({ children
     setImportBlob(null);
     setOnConfirm(null);
   }, [setDiffs, setImportBlob, setOnConfirm, setDiffsModalOpen]);
-
-  const showToast = useCallback((message: string, type: 'success' | 'error') => {
-    setToastMessages((prev) => [...prev, { id: Math.random().toString(36).substring(7), message, type }]);
-  }, [setToastMessages]);
-
-  const showSuccessToast = useCallback((message: string) => showToast(message, 'success'), [showToast]);
-  const showErrorToast = useCallback((message: string) => showToast(message, 'error'), [showToast]);
 
   const handleConfirmImport = async () => {
     if (importBlob) {
@@ -102,20 +87,6 @@ export const DiffsModalProvider: React.FC<{ children: ReactNode }> = ({ children
           <Button onClick={handleConfirmImport} autoFocus>Confirm Import</Button>
         </DialogActions>
       </Dialog>
-      {toastMessages.map((toast, index) => (
-        <Snackbar
-          key={toast.id}
-          open={true}
-          autoHideDuration={TOAST_DURATION}
-          onClose={() => setToastMessages((prev) => prev.filter((t) => t.id !== toast.id))}
-          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-          sx={{ top: `${8 + index * 60}px !important` }}
-        >
-          <Alert onClose={() => setToastMessages((prev) => prev.filter((t) => t.id !== toast.id))} severity={toast.type} sx={{ width: '100%' }}>
-            {toast.message}
-          </Alert>
-        </Snackbar>
-      ))}
     </DiffsModalContext.Provider>
   );
 };

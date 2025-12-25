@@ -6,3 +6,6 @@ interface BeforeInstallPromptEvent extends Event {
 interface WindowEventMap {
   beforeinstallprompt: BeforeInstallPromptEvent; // augments existing map
 }
+
+type DateLike = string | number | Date;
+type NullableDateLike = DateLike | null | undefined;

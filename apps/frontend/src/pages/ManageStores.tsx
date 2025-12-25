@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db } from '../db/db';
-import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent, DragOverlay, type DragStartEvent, defaultDropAnimationSideEffects, type DropAnimation, TouchSensor, rectIntersection, pointerWithin, type CollisionDetection } from '@dnd-kit/core';
+import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent, DragOverlay, type DragStartEvent, defaultDropAnimationSideEffects, type DropAnimation, TouchSensor, rectIntersection, pointerWithin, type CollisionDetection, closestCenter } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Box } from '@mui/material';
 import CreateStoreForm from '../components/CreateStoreForm';

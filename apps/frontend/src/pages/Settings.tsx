@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Typography, Box, IconButton, Button, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText, TextField } from '@mui/material';
+import { Typography, Box, IconButton, Button, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText, TextField, FormControlLabel, Switch } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { db, type CustomIngredient, type Setting } from '../db/db';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SyncSettings } from '../components/SyncSettings';
+import { forceDateMigration } from '../util/db/migration';
+import { useToast } from '../hooks/useToast';
 
 interface RecalcResult {
   changedCounts: { name: string; oldCount: number; newCount: number }[];
@@ -14,6 +16,16 @@ interface RecalcResult {
 const SettingsPage: React.FC = () => {
   const [recalcModalOpen, setRecalcModalOpen] = useState(false);
   const [recalcResult, setRecalcResult] = useState<RecalcResult | null>(null);
+  const { showSuccessToast } = useToast();
+
+  const forceMigrationMutation = useMutation({
+    mutationFn: async () => {
+      await forceDateMigration();
+    },
+    onSuccess: () => {
+      showSuccessToast('Data migration successful!');
+    },
+  });
 
   const handleRecalc = async () => {
     const allGroceryLists = await db.groceryLists.toArray();
@@ -74,6 +86,22 @@ const SettingsPage: React.FC = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'youtubeApiPass'] });
       alert('YouTube API Pass saved!');
+    },
+  });
+
+  const { data: pwaUpdateNotificationsSetting } = useQuery<Setting | undefined>({
+    queryKey: ['settings', 'pwaUpdateNotificationsEnabled'],
+    queryFn: () => db.settings.get('pwaUpdateNotificationsEnabled'),
+  });
+
+  const pwaUpdateNotificationsEnabled = pwaUpdateNotificationsSetting?.value === 'true';
+
+  const savePwaUpdateNotificationsMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      await db.settings.put({ id: 'pwaUpdateNotificationsEnabled', value: enabled.toString() });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'pwaUpdateNotificationsEnabled'] });
     },
   });
 
@@ -140,6 +168,14 @@ const SettingsPage: React.FC = () => {
         <Button variant="contained" onClick={handleRecalc}>
           Recalc Custom Ingredients and Usage
         </Button>
+        <Button
+          variant="contained"
+          onClick={() => forceMigrationMutation.mutate()}
+          disabled={forceMigrationMutation.isPending}
+          sx={{ ml: 2 }}
+        >
+          Force Data Migration
+        </Button>
       </Box>
 
       <Box sx={{ mt: 4 }}>
@@ -160,6 +196,21 @@ const SettingsPage: React.FC = () => {
       </Box>
 
       <SyncSettings />
+
+      <Box sx={{ mt: 4 }}>
+        <Typography variant="h5" component="h2" gutterBottom>
+          PWA Settings
+        </Typography>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={pwaUpdateNotificationsEnabled}
+              onChange={(e) => savePwaUpdateNotificationsMutation.mutate(e.target.checked)}
+            />
+          }
+          label="Show PWA Update Notifications"
+        />
+      </Box>
 
       <Dialog open={recalcModalOpen} onClose={handleRecalcDiscard}>
         <DialogTitle>Recalculation Results</DialogTitle>
