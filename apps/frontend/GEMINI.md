@@ -54,6 +54,7 @@ Examples:
 * Make assumptions about deployment or server behavior
 * Push directly to main branches
 * NEVER install any packages via `npm install` without asking me for EACH one
+* NEVER commit without asking
 
 ---
 
