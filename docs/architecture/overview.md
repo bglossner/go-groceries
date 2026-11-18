@@ -25,12 +25,16 @@ flowchart LR
   H[Static frontend assets] --> F
   F <--> D[(Browser IndexedDB / Dexie)]
   F -->|YouTube URL, tags, pass| Y[YouTube Hono Worker]
-  Y -->|Video snippet and author top-level comments| T[YouTube Data API]
+  Y -->|Metadata and comment API requests| T[YouTube Data API]
+  T -->|Snippet and uploader comments| Y
   Y -->|Extraction prompt| G[Groq API]
+  G -->|JSON extraction| Y
   Y -->|Generated meal and recipe| F
   F -->|File name, content type, pass| I[Images / file Hono Worker]
-  I -->|HEAD and signed PUT / GET URLs| R[(Cloudflare R2 via S3 API)]
+  I -->|HeadObject existence check| R[(Cloudflare R2 via S3 API)]
+  I -->|Signed PUT and GET URLs| F
   F -->|Backup PUT / GET using signed URL| R
+  R -->|Backup download| F
   F <--> B[Downloaded / selected backup file]
   S[Shared backend error and model utilities] -.-> Y
   S -.-> I
