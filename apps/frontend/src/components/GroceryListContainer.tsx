@@ -2,21 +2,14 @@ import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type GroceryList, type Meal, type GroceryListState, type Store, type IngredientStore } from '../db/db';
 import { useSetLastEditedGroceryListId } from '../hooks/useSetLastEditedGroceryListId';
-import { List, ListItem, ListItemText, Checkbox, Typography, Button, Divider, Box, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Accordion, AccordionSummary, AccordionDetails, ToggleButtonGroup, ToggleButton } from '@mui/material';
-import { ExpandMore } from '@mui/icons-material';
+import { List, ListItem, ListItemText, Checkbox, Typography, Button, Divider, Box, Dialog, DialogTitle, DialogContent, DialogActions, TextField, ToggleButtonGroup, ToggleButton } from '@mui/material';
+
+import type { AggregatedIngredient, PartitionedIngredients } from '../types/grocery-list-types';
+import { PartitionedGroceryList } from './PartitionedGroceryList';
 
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
 
-interface AggregatedIngredient {
-  name: string;
-  quantity: number;
-  sources: string[];
-}
 
-interface PartitionedIngredients {
-  byStore: Map<number, { storeName: string; storeColor?: string; ingredients: AggregatedIngredient[] }>;
-  uncategorized: AggregatedIngredient[];
-}
 
 const aggregateAndPartitionIngredients = (
   groceryList: GroceryList,
@@ -81,11 +74,14 @@ const aggregateAndPartitionIngredients = (
   return { byStore, uncategorized };
 };
 
+
+
 export const GroceryListContainer: React.FC<{ groceryListId: number }> = ({ groceryListId }) => {
   const queryClient = useQueryClient();
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [partitionByStore, setPartitionByStore] = useState(false);
+  const [expandedStoreAccordions, setExpandedStoreAccordions] = useState<Map<number, boolean>>(new Map());
   const setLastEditedListIdMutation = useSetLastEditedGroceryListId();
 
   const handlePartitionToggle = (
@@ -97,13 +93,22 @@ export const GroceryListContainer: React.FC<{ groceryListId: number }> = ({ groc
     }
   };
 
+  const handleAccordionToggle = (storeId: number) => (event: React.SyntheticEvent) => {
+    event.stopPropagation(); // Prevent AccordionSummary from expanding/collapsing
+    setExpandedStoreAccordions(prev => {
+      const newState = new Map(prev);
+      newState.set(storeId, !newState.get(storeId));
+      return newState;
+    });
+  };
+
   const { data: groceryList } = useQuery<GroceryList | undefined>({
     queryKey: ['groceryList', groceryListId],
     queryFn: () => db.groceryLists.get(groceryListId!),
     enabled: !!groceryListId,
   });
 
-  const { data: meals } = useQuery<Meal[]> ({
+  const { data: meals } = useQuery<Meal[]>({
     queryKey: ['meals'],
     queryFn: () => db.meals.toArray(),
   });
@@ -280,59 +285,37 @@ export const GroceryListContainer: React.FC<{ groceryListId: number }> = ({ groc
       )}
 
       {partitionByStore ? (
-        (() => {
-          const partitioned = aggregatedIngredients as PartitionedIngredients;
-          const filteredByStore = new Map(
-            Array.from(partitioned.byStore.entries()).filter(([, entry]) =>
-              entry.ingredients.some(ing => ing.name.toLowerCase().includes(searchTerm.toLowerCase()))
-            )
-          );
-          const filteredUncategorized = partitioned.uncategorized.filter(ing =>
-            ing.name.toLowerCase().includes(searchTerm.toLowerCase())
-          );
 
-          return (
-            <>
-              {Array.from(filteredByStore.entries()).map(([storeId, storeEntryValue]) => (
-                <Accordion key={storeId} defaultExpanded>
-                  <AccordionSummary expandIcon={<ExpandMore />}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {storeEntryValue.storeColor && (
-                        <Box sx={{ width: 16, height: 16, borderRadius: '50%', backgroundColor: storeEntryValue.storeColor, border: '1px solid grey' }} />
-                      )}
-                      <Typography>{storeEntryValue.storeName}</Typography>
-                    </Box>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    <List>
-                      {storeEntryValue.ingredients.map((ing) => renderIngredientItem(ing, false))}
-                    </List>
-                  </AccordionDetails>
-                </Accordion>
-              ))}
-              {filteredUncategorized.length > 0 && (
-                <Accordion defaultExpanded>
-                  <AccordionSummary expandIcon={<ExpandMore />}>
-                    <Typography>Uncategorized</Typography>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    <List>
-                      {filteredUncategorized.map((ing) => renderIngredientItem(ing, false))}
-                    </List>
-                  </AccordionDetails>
-                </Accordion>
-              )}
-            </>
-          );
-        })()
+        <PartitionedGroceryList
+
+          partitionedIngredients={aggregatedIngredients as PartitionedIngredients}
+
+          searchTerm={searchTerm}
+
+          expandedStoreAccordions={expandedStoreAccordions}
+
+          handleAccordionToggle={handleAccordionToggle}
+
+          renderIngredientItem={renderIngredientItem}
+
+        />
+
       ) : (
+
         <List>
+
           {(aggregatedIngredients as AggregatedIngredient[]).filter(ing => ing.name.toLowerCase().includes(searchTerm.toLowerCase())).map((ing, index) => {
+
             const isChecked = groceryListState?.checkedIngredients?.includes(ing.name) || false;
+
             const showDivider = isChecked && index === uncheckedCount;
+
             return renderIngredientItem(ing, showDivider);
+
           })}
+
         </List>
+
       )}
 
       <Dialog open={resetConfirmOpen} onClose={handleCancelReset}>
