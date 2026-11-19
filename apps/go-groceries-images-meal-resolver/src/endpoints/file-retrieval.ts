@@ -1,3 +1,4 @@
+import { isLegacyKey } from '../file-upload/legacy-key';
 import { AppType } from "..";
 import { FileRetrievalRequest, FileRetrievalResponse, R2_FILE_UPLOAD_TYPE } from "../types";
 import { generatePresignedGetUrl } from "../file-upload/r2-presign-get";
@@ -13,10 +14,17 @@ export function fileRetrievalEndpoint(app: AppType) {
     } catch (err) {
       return c.json({ error: 'Invalid or missing JSON body' }, 400);
     }
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      return c.json({ error: 'Invalid JSON body' }, 400);
+    }
     const { fileName, uploadedType, pass } = body;
 
     if (c.env.ENABLE_PASS !== 'false' && (!pass || pass !== c.env.PASS)) {
       return c.json({ error: 'Invalid pass provided' } satisfies ErrorResponse, 403);
+    }
+
+    if (!isLegacyKey(fileName)) {
+      return c.json({ error: 'Invalid legacy filename or reserved storage key' }, 400);
     }
 
     if (uploadedType !== R2_FILE_UPLOAD_TYPE) {

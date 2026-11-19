@@ -19,8 +19,10 @@ export const generatePresignedGetUrl = async (c: AppContext, filename: string) =
       Key: filename,
     }));
   } catch (error) {
-    // Assuming the error means the object doesn't exist
-    throw new ErrorWrapper({ message: "File not found", statusCode: 404 });
+    if ((error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404) {
+      throw new ErrorWrapper({ message: 'File not found', statusCode: 404 });
+    }
+    throw new ErrorWrapper({ message: 'Storage lookup failed', statusCode: 502 });
   }
 
   const command = new GetObjectCommand({

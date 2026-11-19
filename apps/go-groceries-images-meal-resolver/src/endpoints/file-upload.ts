@@ -1,3 +1,4 @@
+import { isLegacyKey } from '../file-upload/legacy-key';
 import { ALLOWED_CONTENT_TYPES, ErrorWrapper, FileUploadRequest, FileUploadResponse, R2_FILE_UPLOAD_TYPE } from "../types";
 import { generatePresignedUrl } from "../file-upload/r2-presign";
 import { AppType } from "..";
@@ -12,10 +13,17 @@ export function fileUploadEndpoint(app: AppType) {
     } catch (err) {
       return c.json({ error: 'Invalid or missing JSON body' }, 400);
     }
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      return c.json({ error: 'Invalid JSON body' }, 400);
+    }
     const { fileUploadType, fileName, contentType, pass } = body;
 
     if (c.env.ENABLE_PASS !== 'false' && (!pass || pass !== c.env.PASS)) {
       return c.json({ error: 'Invalid pass provided' } satisfies ErrorResponse, 403);
+    }
+
+    if (!isLegacyKey(fileName)) {
+      return c.json({ error: 'Invalid legacy filename or reserved storage key' }, 400);
     }
 
     try {
