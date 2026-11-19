@@ -1,12 +1,18 @@
 # Image storage options
 
-Status: proposed design; application code remains unchanged. Source baseline: `origin/unsure`, commit `7fe9eab`. Pricing read: 2026-11-18. The independent correctness/security review is recorded in `code-review.md` in the task evidence.
+Status: storage, local migration and writer access selected by the human on 2026-11-19; application code remains unchanged. Detailed contracts remain proposed. Source baseline: `origin/unsure`, commit `7fe9eab`. Pricing read: 2026-11-18. The independent correctness/security review is recorded in `code-review.md` in the task evidence.
 
 ## Outcome and decision scope
 
-Separating binary images from the sync snapshot is feasible with the R2 storage the app already uses. Recommend **private R2 objects addressed by a content hash, with a small versioned metadata manifest and signed image downloads**. Keep local binary copies for offline viewing. This makes metadata retrieval small and avoids uploading unchanged images on every sync.
+The human selected **private R2 objects with signed transfers**, **Dexie version 15 references and a local image cache**, and **one shared pass for all writers**. Store images by verified content hash and keep the sync snapshot as a small metadata manifest. Local binary copies support offline viewing, and unchanged images can be reused across syncs. All shared-pass holders are trusted across every collection.
 
-This is a recommendation, not approval to change the Dexie schema, shared contracts, dependencies, authentication, or Cloudflare configuration. No app edits, deployment, account access, real IndexedDB access, or real export inspection were performed. Only a fresh browser profile with synthetic data was used. No repository dependency was installed.
+These answers select the design approaches. This task remains read-only for application code; no schema upgrade or service implementation was performed. Exact schema fields, HTTP/shared types, dependencies and Cloudflare configuration remain proposed for implementation review. No deployment, account access, real IndexedDB access, or real export inspection was performed. Only a fresh browser profile with synthetic data was used. No repository dependency was installed.
+
+| Decision | Human-selected outcome | Consequence |
+| --- | --- | --- |
+| Storage/delivery | Private R2 with signed transfers | The Worker grants temporary GET links; the browser downloads image bytes directly from R2. |
+| Local migration | Version 15 references and local image cache | Metadata references stable assets; cached binary bytes support offline display and metadata-first import. |
+| Writers | One shared pass for all writers | Every pass holder can read and publish changes across all collections. Collection names are organizational namespaces, not writer isolation. |
 
 Evidence labels: **LIVE** means source inspection, an official documentation read, or a completed synthetic probe; it does not mean the deployed app was tested. **INFERRED** identifies extrapolations and proposed behavior. The user's actual image fraction remains unknown.
 
@@ -123,21 +129,21 @@ Optional Images Free transformations can complement R2 later, but do not replace
 
 ## Common design requirements and human-owned choices
 
-All proposals below are **INFERRED**. Compare metadata size, repeated transfer, offline availability, access control, migration safety, and operational work. None adds a queryable record backend: meal metadata remains a small snapshot. If "retrieve data" means server-side per-meal queries, that is a separate requirement.
+The three selections above are **LIVE human decisions**; future implementation behavior below remains **INFERRED**. Compare metadata size, repeated transfer, offline availability, access control, migration safety, and operational work. None adds a queryable record backend: meal metadata remains a small snapshot. If "retrieve data" means server-side per-meal queries, that is a separate requirement.
 
 ### Local model choices
 
-**Reference model proposal:** subject to your approval, add Dexie **version 15** after current version 14, a hash-keyed `imageBlobs` table for local Blob bytes and an upload-state table keyed by collection/asset. Change recipe and pending-recipe image slots to a tagged union of external URL and stable asset reference; normalize embedded meal Files similarly. Keep name/lastModified per slot, since identical bytes can have different filenames. Store MIME/byte length in the asset descriptor and verify consistency. Hash the compressed/normalized final bytes with built-in Web Crypto SHA-256; do not recompress existing Files just to migrate.
+**Selected reference model:** the human selected Dexie **version 15** references and a local image cache after current version 14. The proposed table layout is a hash-keyed `imageBlobs` table for local Blob bytes and an upload-state table keyed by collection/asset. Change recipe and pending-recipe image slots to a tagged union of external URL and stable asset reference; normalize embedded meal Files similarly. Keep name/lastModified per slot, since identical bytes can have different filenames. Store MIME/byte length in the asset descriptor and verify consistency. Hash the compressed/normalized final bytes with built-in Web Crypto SHA-256; do not recompress existing Files just to migrate. Exact fields and shared types remain a proposal.
 
 The DB upgrade creates tables and leaves old fields readable. A resumable local conversion runs after open, outside the version-change transaction: read bytes, hash outside the write transaction, then atomically save the Blob and replace the corresponding legacy slot in a short multi-table transaction. Recheck that the slot did not change before committing. Quota/cancel/hash failures retain the original. No network work occurs in a Dexie upgrade. Local Blob/upload-state tables are excluded from cloud metadata export; the manifest's asset inventory is explicit.
 
-**Lower migration alternative:** retain Dexie version 14 and current File/string/descriptor fields. A new sync serializer projects Files into asset references, and a new importer fully hydrates them back into Files before committing. This avoids changing the local schema and image-rendering model, but it keeps duplicate local Files and makes complete first import wait for every required image. It still requires your approval for the new shared manifest/API contracts. It cannot claim metadata-only import plus persistent unresolved references without introducing another local state model.
+**Unselected lower migration alternative:** retain Dexie version 14 and current File/string/descriptor fields. A new sync serializer would project Files into asset references, and a new importer would fully hydrate them back into Files before committing. This avoids changing the local schema and image-rendering model, but it keeps duplicate local Files and makes complete first import wait for every required image. It still requires approval for the new shared manifest/API contracts. It cannot claim metadata-only import plus persistent unresolved references without introducing another local state model.
 
-Neither alternative is selected by this investigation. The rest of the migration section describes the reference-model proposal; the hydration alternative uses the same remote objects and validation but has no v15 conversion.
+The migration plan follows the selected version 15 reference model. Version 14 projection/hydration is retained only as an alternative comparison.
 
 ### Versioned contracts
 
-Propose a separate `shareable/image-assets.ts`/`snapshot.ts` contract rather than silently changing old Dexie JSON:
+Propose a separate `shareable/image-assets.ts`/`snapshot.ts` contract for the selected R2 design rather than silently changing old Dexie JSON:
 
 ```ts
 type ImageRef =
@@ -145,8 +151,7 @@ type ImageRef =
   | { kind: 'asset'; assetId: string; name?: string; lastModified?: number };
 type Asset = {
   assetId: string; sha256: string; mimeType: string; byteLength: number;
-  location: { provider: 'r2'; key: string }
-    | { provider: 'images'; imageId: string; originalKey: string };
+  location: { provider: 'r2'; key: string };
 };
 type Snapshot = {
   format: 'go-groceries-snapshot'; version: 2;
@@ -158,7 +163,9 @@ type Snapshot = {
 
 This sketch is not a final type design. Specify runtime parsing, unknown-version rejection, bounded table/record/asset counts, content types, image-byte and pixel limits, and permitted key formats before implementation. Separate generation inputs (URL/base64/etc.) from persisted image references and normalize them at the frontend boundary. Extend frontend package exports only after approving the contract. No new dependency is inherently required for hashing; a runtime validator or backup archive dependency is a separate choice.
 
-Never serialize transient signed URLs, passes, or share tokens into durable image records or metadata manifests. A share link carries a read-only, expiring capability scoped to one immutable snapshot; the app separately presents that capability to retrieve its images. Binding image access only to the global pass would break pass-free recipients of today's signed snapshot links. Update Worker CORS to permit the chosen methods and Authorization header from approved frontend origins; the current Content-Type-only header allowlist cannot support cross-origin capability-header requests.
+Writer operations use the selected shared pass. Valid pass holders are trusted to read and publish across every collection; snapshot and image-write endpoints must still validate data and preserve immutable-object rules. The proposed recipient-sharing contract is separate: a share link carries a read-only, expiring capability scoped to one immutable snapshot, which cannot write data or access another snapshot. A full-pass writer would create those links; exact token/HTTP fields remain proposed.
+
+Never serialize transient signed URLs, passes, or share tokens into durable image records or metadata manifests. The app separately presents its full writer pass or read-only share permission when requesting image download links. Requiring the full writer pass for every read would break pass-free recipients of today's signed snapshot links. Update Worker CORS to permit the chosen methods and Authorization header from approved frontend origins; the current Content-Type-only header allowlist cannot support cross-origin capability-header requests.
 
 ### Offline, sharing, and backup
 
@@ -172,19 +179,23 @@ Keep a **portable full backup** that contains image bytes and can restore withou
 
 Upload assets first, verify success, then publish an immutable snapshot. Update the mutable "latest" pointer only after the snapshot is committed, using a conditional revision check. Conflicting writers receive a conflict instead of silently overwriting one another. Retrying after an ambiguous timeout reconciles object/snapshot existence; no broken manifest becomes latest. Apply image-only changes based on snapshot revision/content, not meal-name differences.
 
-A shared pass remains a shared trust group: every holder can currently sign arbitrary keys. Random collection names reduce accidental discovery but do not create user isolation. For the proposed implementation, choose either explicitly trusted shared writers or per-collection writer capabilities/account authorization. Read capabilities must always be narrower than write credentials. SHA-256 is a deduplication identity, not a password: hashes of known images can be computed/guessed. Namespace deduplication by collection rather than providing a global cross-user existence oracle.
+The human selected a shared writer trust group: one shared pass authorizes every writer across all collections. No per-writer accounts or collection-specific writer credentials are selected, and collection names do not provide isolation between pass holders. Supersedes: recommended collection-specific writer permissions, because the human chose one shared pass for all writers. Changing the pass affects every writer; already issued signed links remain usable until expiry, and local downloaded copies remain available.
+
+Proposed recipient read capabilities remain narrower than full-pass writer access and are scoped to one snapshot. Verify this scope before object lookup/signing; a read token must never permit upload or publication. SHA-256 is a deduplication identity, not a password: hashes of known images can be computed/guessed. Keep collection namespaces for organization and deduplication; they are not an authorization boundary for full-pass writers.
 
 Deleting a slot/meal does not immediately delete its object. Scan all recipes, pending recipes, embedded meal images, retained snapshots and live heads; thumbnail references alone are not the reachability set. Today's meal delete leaves recipe rows behind. [Meals.tsx:156](../../apps/frontend/src/pages/Meals.tsx#L156). Preserve unrelated existing orphan records during migration rather than making an unrequested cleanup decision.
 
 Initially **disable automatic remote garbage collection**. A later mark/sweep must mark all retained immutable manifests and active publications, wait a defined retention/grace period, and recheck before deletion under a coordination mechanism that excludes commits racing the sweep. R2 strong consistency is per object and does not give a multi-object transaction. A time delay alone does not solve the race. A coordinated maintenance window or a new durable coordinator is an additional design decision; no extra storage service/dependency is assumed here. Old offline writers must check/reupload missing assets before publishing. Standalone metadata exports need declared expiration or indefinite retention; portable backups retain their own bytes.
 
-## Option: R2 objects with direct signed transfers
+## Selected option: R2 objects with direct signed transfers
 
-**Storage and model.** Use the existing private R2 Standard bucket, with reserved prefixes such as `collections/<random-id>/images/sha256/<digest>`, immutable snapshots and a latest pointer. The durable manifest contains keys/hash descriptors, never embedded owned-image bytes or signed URLs. Apply either approved local model above; v15 conversion preserves legacy Files in local storage while replacing slots with references.
+**Storage and model.** Use the existing private R2 Standard bucket, with reserved prefixes such as `collections/<random-id>/images/sha256/<digest>`, immutable snapshots and a latest pointer. The durable manifest contains keys/hash descriptors, never embedded owned-image bytes or signed URLs. Apply the selected version 15 reference/cache model: conversion preserves legacy binary bytes in local storage while replacing slots with references.
 
-**Shared contract and endpoints.** Keep old file routes for legacy snapshots during coexistence, but restrict both GET and PUT signing to an explicit legacy-key allowlist/format; deny reserved asset/manifest prefixes in both directions. Otherwise a global-pass holder bypasses new collection read scopes through `/file-retrieval`. Existing legacy snapshots retain their old trust model until migrated. Drain outstanding reserved-key signatures before claiming the new boundary is enforced. Add bounded batch image preparation/download signing and snapshot commit/read operations. Retire the filename-from-URL parser for v2; carry the full canonical key/collection/snapshot explicitly. The old `{url}` responses need expiration/full-key fields or an entirely separate v2 contract.
+**Shared contract and endpoints.** Keep old file routes for legacy snapshots during coexistence, but restrict both GET and PUT signing to an explicit legacy-key allowlist/format; deny reserved asset/manifest prefixes in both directions. Under the selected shared-pass model, valid full-pass writers are authorized across collections through v2 endpoints. Reserved-prefix restrictions still prevent bypassing new validation and immutable-object rules; they do not create isolation between these writers. Read-only recipients must use the scoped v2 read path. Existing legacy snapshots retain their old trust model until migrated. Drain outstanding reserved-key signatures before claiming the new prefix restrictions are enforced. Add bounded batch image preparation/download signing and snapshot commit/read operations. Retire the filename-from-URL parser for v2; carry the full canonical key/collection/snapshot explicitly. The old `{url}` responses need expiration/full-key fields or an entirely separate v2 contract.
 
-**Upload, download and deduplication.** Hash final bytes; prepare checks for an already verified final object. For a miss, sign a five-minute PUT to a random staging key. Completion checks actual size, allowed format and SHA-256 before the Worker creates the final immutable hash object; only server code writes final keys. Conditional create prevents concurrent overwrites. If a verified object exists, reuse it. Download signing verifies capability membership in the committed snapshot and returns short-lived GET URLs; fetch/cache/verify the binary locally. Batch calls reduce signer requests, not underlying R2 GET counts.
+**Upload, download and deduplication.** Hash final bytes; prepare checks for an already verified final object. For a miss, sign a five-minute PUT to a random staging key. Completion checks actual size, allowed format and SHA-256 before the Worker creates the final immutable hash object; only server code writes final keys. Conditional create prevents concurrent overwrites. If a verified object exists, reuse it. For downloads, a valid shared writer pass authorizes access to registered assets across collections; a proposed read-only share token authorizes only assets in its committed snapshot. Both paths validate canonical keys before issuing short-lived GET URLs. Fetch/cache/verify the binary locally. Batch calls reduce signer requests, not underlying R2 GET counts.
+
+Download links are temporary permissions, not durable image identities. Keep the permanent image key in metadata. The app uses a local cached image when available; when it needs remote bytes, it requests a valid signed GET URL and refreshes an expired URL automatically while its writer pass or recipient permission remains valid. Expiration leaves the stored image and cached bytes unchanged.
 
 This staging design deliberately avoids granting unrestricted signed PUTs to final hash keys. Otherwise a pass holder can poison a content-addressed key with unrelated bytes. Signed Content-Type is insufficient body validation. Completion reads a staging object once into a bounded buffer, verifies it, and writes **those exact verified bytes** to the final key; do not validate a mutable key and then separately re-read/copy it. PUT URLs are reusable until expiry. Equivalent version-bound promotion is possible only after its conditional semantics are verified. Make completion idempotent and remove staging after a confirmed final write. At least one staging GET and a final write are needed for strict verification; do not assume client metadata or HEAD proves the content hash. Error handling must distinguish genuine 404 from authorization, throttling and upstream failure.
 
@@ -194,7 +205,7 @@ This staging design deliberately avoids granting unrestricted signed PUTs to fin
 
 **Cost/effort/risks.** R2 allowance fit is strong at small scale; strict staging doubles new-image writes and adds verification reads. Worker signing/verification CPU is unmeasured: qualify zero-cost expectations against the 10 ms Free limit. Relative effort: moderate; familiar transfer plumbing, but manifest versioning, safe import, offline cache and share scopes are substantive work. Main risks are partial migration, stale clients, signed URL expiry, poisoning if legacy routes bypass restrictions, and changing the current pass-free sharing behavior.
 
-## Option: Private R2 behind a Worker binding
+## Unselected alternative: Private R2 behind a Worker binding
 
 **Storage and model.** Use the same hash objects/manifests and either approved local model, with the same proposed v15 resumable conversion if selected. Add an R2 binding in Wrangler and generated Env types. The browser sees stable authenticated Worker endpoints rather than S3 signed image URLs.
 
@@ -208,7 +219,7 @@ This staging design deliberately avoids granting unrestricted signed PUTs to fin
 
 **Cost/effort/risks.** Each image network read invokes the Worker and performs an R2 read absent a safe cache. It can fit Workers Free at personal scale, but has a daily request limit and unmeasured verification CPU. Relative effort: moderate to high; more centralized streaming/error/authorization code and a new binding configuration, with fewer URL-expiry/CORS problems. Good choice if centralized authorization/revocation and a stable delivery API outweigh reuse of the current direct-transfer path. Risks include Worker availability becoming the delivery dependency, incorrect authenticated caching, upload validation resource use and stale clients using the old signer.
 
-## Option: Cloudflare Images hosted storage and delivery
+## Unselected alternative: Cloudflare Images hosted storage and delivery
 
 **Storage and model.** Use Images for managed image storage/delivery and put provider-assigned image IDs in the manifest. For the byte-exact original/hash guarantees used elsewhere in this proposal, also retain verified originals in private R2: Images' [download API](https://developers.cloudflare.com/api/resources/images/subresources/v1/subresources/blobs/methods/get) can return near-lossless representations for larger images, so it cannot establish the original SHA-256. The same proposed v15 Blob cache/reference migration applies if approved; retain originals locally and in portable backups. Keep a server-side mapping from collection/original-hash to R2 original key and Images ID. This is a hybrid with additional storage/coordination work, not an Images-only byte-exact backup.
 
@@ -222,10 +233,11 @@ This staging design deliberately avoids granting unrestricted signed PUTs to fin
 
 **Cost/effort/risks.** Hosted Images does **not** meet a strict free requirement: the first storage increment is $5/month, plus metered delivery, the additional original R2 storage/operations, and applicable Worker costs. It buys managed image validation/transformation/variants rather than just object storage. Relative effort: highest, because it adds provider-specific contracts, server ingestion/mapping, concurrency recovery and original/variant distinctions to an original-preservation path. Favor it if you want managed resizing/delivery enough to accept recurring cost and provider dependence. The existing image-generation placeholder does not provide any of this infrastructure.
 
-## Comparison and recommendation
+## Comparison and selected design
 
 | Criterion | R2 signed transfers | R2 Worker binding | Hosted Images |
 | --- | --- | --- | --- |
+| Human selection | **Selected** | Unselected alternative | Unselected alternative |
 | Recurring sync snapshot | Small metadata + asset keys | Small metadata + asset keys | Small metadata + provider IDs |
 | Unchanged images | Reused by verified hash | Reused by verified hash | Reused through hash-to-ID mapping |
 | Offline | Local verified Blob cache; v14 alternative fully hydrates Files | Same | Local originals/display variants |
@@ -236,9 +248,9 @@ This staging design deliberately avoids granting unrestricted signed PUTs to fin
 | Relative effort | Moderate | Moderate/high | Highest |
 | Main reason to choose | Reuse existing R2 transfer approach | Central enforcement and stable delivery | Managed image variants |
 
-**INFERRED - recommendation.** Choose R2 signed transfers if your priority is smaller, easier metadata retrieval with low recurring cost. The bucket and direct transfer code already exist; hashed objects also reduce first transfer's serialization overhead and later unchanged-image transfers. Choose the Worker-binding option instead if simpler centralized authorization is the stronger priority. Hosted Images is credible for managed variants, but is a paid alternative.
+**LIVE - human selection.** The design uses R2 signed transfers with version 15 references/local caching and one shared writer pass. **INFERRED - rationale.** The existing bucket and direct transfer code support smaller metadata retrieval with low recurring cost. Hashed objects also reduce first transfer's serialization overhead and later unchanged-image transfers. Worker-binding delivery and hosted Images remain documented alternatives, not the selected implementation path.
 
-Recommendation is conditional on approving the local schema/import approach and the v2 sharing contract. Restricting legacy signer key access, preserving pass-free share recipients with scoped read capabilities, and validating bytes before publishing hash objects are requirements, not optional polish.
+The storage, local model and writer trust decisions are settled. Exact shared contracts and implementation are still proposed. Restricting legacy signer key access, preserving pass-free share recipients with scoped read capabilities, and validating bytes before publishing hash objects remain requirements. A shared pass intentionally grants every holder broad writer access; this design does not promise protection between those holders.
 
 ### Illustrative allowance budget
 
@@ -250,24 +262,25 @@ The Worker-binding variant can omit the per-image signing HEAD and centralize up
 
 ## Migration and validation plan
 
-This is proposed implementation work after your choices, not work performed by this investigation.
+This is proposed implementation work for the selected design, not work performed by this investigation.
 
-1. **Approve boundaries.** Choose storage/delivery, v15 references versus v14 projection/hydration, offline completeness policy, writer trust/access scope, manifest/share contracts and backup/retention policy. No dependency addition is presumed.
+1. **Confirm remaining details before implementation.** Apply the selected private R2 signed transfers, version 15 references/local cache and shared writer pass. Finalize schema fields, manifest/recipient-share contracts, offline completeness and backup/retention policy. No dependency addition is presumed.
 2. **Protect recovery.** Preserve existing full exports and local Files. Build/read-test the new importer before any writer publishes v2. Validate all metadata in a temporary DB/version adapter, asset inventory, owned keys, dates, count/size limits and required hashes before replacing current tables. Do not carry forward the current clear-then-import behavior.
-3. **Convert locally if v15 is chosen.** Create cache/upload tables on upgrade; convert File, Blob and data-base64 slots in bounded, restartable batches outside the upgrade transaction. Also decode `data:` URLs in string/URL slots; leave HTTP(S) URLs external by default and report unrecoverable `blob:` references. Include pending and embedded meal images. Retain original bytes on failures, preserve filenames/slot order and deduplicate identical bytes. Do not rely on a mutation-hook outbox alone: current hooks intercept selected single-row methods, not every bulk/collection change. Use an explicit resumable migration/upload queue. [db.ts:200](../../apps/frontend/src/db/db.ts#L200).
+3. **Convert locally under the selected v15 model.** Create cache/upload tables on upgrade; convert File, Blob and data-base64 slots in bounded, restartable batches outside the upgrade transaction. Also decode `data:` URLs in string/URL slots; leave HTTP(S) URLs external by default and report unrecoverable `blob:` references. Include pending and embedded meal images. Retain original bytes on failures, preserve filenames/slot order and deduplicate identical bytes. Do not rely on a mutation-hook outbox alone: current hooks intercept selected single-row methods, not every bulk/collection change. Use an explicit resumable migration/upload queue. [db.ts:200](../../apps/frontend/src/db/db.ts#L200).
 4. **Resolve thumbnail references conservatively.** Verify recipe ID, owner meal and image index. Preserve a reference when interpretations agree. When declared recipe ID and the currently displayed meal-owned recipe disagree, retain the legacy descriptor and report the ambiguous relationship rather than attaching another meal's image. Do not collapse multiple recipes per meal as an incidental migration.
-5. **Provision only after approval.** Reserve/protect prefixes; configure private bucket access, bucket CORS and Worker CORS for the chosen methods/Authorization header, credentials/binding or Images token. Constrain both legacy GET and PUT signing and drain outstanding reserved-key signatures before claiming collection isolation. Implement bounded preparation/verification and promotion of exactly the verified bytes. Default GC remains disabled.
+5. **Provision only in an authorized implementation task.** Reserve/protect prefixes; configure private R2 bucket access, bucket CORS and Worker CORS for the final methods/headers, and the shared writer pass. Constrain both legacy GET and PUT signing and drain outstanding reserved-key signatures before claiming prefix protections. All pass holders remain trusted across collections; proposed read-only recipient tokens must not grant writer operations. Implement bounded preparation/verification and promotion of exactly the verified bytes. Default GC remains disabled.
 6. **Publish safely.** Upload missing assets, reconcile ambiguous retries, verify each asset, commit immutable manifest, then conditionally advance latest. Freeze the metadata revision during asset preparation or restart if records change; never publish references from one revision with rows from another.
-7. **Import safely.** Reference-model clients can stage validated metadata and retain a background hydration inventory. Replace included metadata tables atomically in a short transaction; preserve verified hash-matching cache entries, keep old data until validation succeeds, invalidate affected meal/recipe/list queries, and mark offline-ready only when hydration completes. No network awaits inside that transaction. The v14 alternative stages and verifies every required File before its atomic replacement. Expired share authorization may allow staged metadata only if you explicitly choose a partial availability policy; do not report full restore.
+7. **Import safely.** Version 15 clients can stage validated metadata and retain a background hydration inventory. Replace included metadata tables atomically in a short transaction; preserve verified hash-matching cache entries, keep old data until validation succeeds, invalidate affected meal/recipe/list queries, and mark offline-ready only when hydration completes. No network awaits inside that transaction. Expired recipient authorization may allow staged metadata only if an explicit partial availability policy is selected; do not report full restore.
 8. **Coexist and rollback.** Introduce v2 behind an explicit opt-in/new sync location; keep legacy snapshot keys and full backup export during rollout. Old clients must not be allowed to overwrite a v2 head or reserved prefixes. Readers reject unknown versions before clearing data. Application rollback after v15 cannot assume an old build will open the newer database; use the validated portable legacy restore into an explicitly supported DB/recovery path. Retain remote assets until rollback/retention decisions are settled.
 9. **Validate failure cases.** Cover differing recipe/meal IDs, multiple recipe rows, reordered/deleted slots, duplicate content with different names, pending Blob/base64, URL-only collections, malformed/oversized input, quota exhaustion, offline edits/restart, image-only snapshot changes, URL renewal, wrong hash/poisoned upload, pass rejection, guessed key, share expiry, legacy-signer bypass, concurrent publishers, upload timeouts, GC racing a commit and missing asset restore. The synthetic serializer probe does not validate these proposed services.
 10. **Operate from useful signals.** Track snapshot bytes, binary bytes, dedup hits, upload completion failures, offline missing-asset counts, invalid hashes, authorization failures and object/manifest growth; redact capabilities and signed URLs. Set budget/usage alerts before enabling broader sharing. Only enable remote GC after proving reachability and commit/sweep coordination.
 
 ## Decisions to evaluate
 
-- Storage/delivery: recommend private R2 signed objects; choose binding delivery for stronger central enforcement, or paid Images for managed variants.
-- Local model: v15 references/cache supports fast metadata import; v14 projection avoids schema migration but requires full image hydration before import. Your choice.
-- Shared contracts/access: approve a versioned manifest and snapshot-scoped read capability; decide whether all pass holders remain equally trusted writers.
+- Storage/delivery (selected): private R2 with signed transfers. Binding delivery and paid Images remain unselected comparisons.
+- Local model (selected): version 15 references and local image cache; version 14 projection/hydration is not selected.
+- Writer access (selected): one shared pass for all writers, with broad access across all collections. Supersedes: recommended collection-specific writer permissions, because the human selected a shared trust group.
+- Shared contracts: versioned metadata, exact API fields and read-only recipient capabilities remain proposed, not application changes performed by this task.
 - Offline: recommend explicit eager hydration for offline collections; on-demand caching lowers disk/network use but leaves unseen images unavailable offline.
 - Backup/retention: preserve portable full backups; keep GC disabled initially. Keys-only exports need a declared lifetime or indefinite object retention.
 - Dependencies: none added; native hashing suffices. Archive/runtime-validation/image-decoder choices need a separate approval if new libraries are wanted.
