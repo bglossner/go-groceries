@@ -1,38 +1,45 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { liveQuery } from 'dexie';
+import { db } from '../db/db';
+import { SNAPSHOT_TABLES } from '../shareable/snapshot';
 import { useMutationQueueStore, type MutationQueueState } from '../store/mutationQueueStore';
 import { useSyncTo } from './useSyncTo';
 
-const SYNC_DEBOUNCE_TIME_MS = 5000;
-// const SYNC_DEBOUNCE_TIME_DEBUG = 1000; // 1 seconds
-
 export const useDebouncedSync = () => {
-  const mutationQueue = useMutationQueueStore((state: MutationQueueState) => state.mutationQueue);
-  const clearQueue = useMutationQueueStore((state: MutationQueueState) => state.clearQueue);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const { existingSyncTo, syncToMutation: { mutateAsync: syncToMutateAsync } } = useSyncTo();
-
+  const queue = useMutationQueueStore((state: MutationQueueState) => state.mutationQueue);
+  const acknowledge = useMutationQueueStore(state => state.acknowledgeMutations);
+  const { existingSyncTo, syncToMutation: { mutateAsync } } = useSyncTo();
+  const [retry, setRetry] = useState(0);
+  const uploading = useRef(false);
   useEffect(() => {
-    if (mutationQueue.length > 0 && existingSyncTo?.automatic) {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-
-      debounceTimerRef.current = setTimeout(async () => {
-        console.log('Debounced sync triggered!');
-        try {
-          await syncToMutateAsync({ existingSyncTo, automatic: true });
-        } finally {
-          clearQueue();
+    let previous: string | undefined;
+    // Observe bulk/collection writes as well as the existing single-row mutation hooks.
+    const subscription = liveQuery(async () => JSON.stringify(await Promise.all(
+      SNAPSHOT_TABLES.map(name => db.table(name).toArray())))).subscribe({
+      next: value => {
+        if (previous !== undefined && value !== previous) {
+          useMutationQueueStore.getState().addMutation({ method: 'metadataChanged', table: 'snapshot', args: [], result: undefined });
         }
-      }, SYNC_DEBOUNCE_TIME_MS);
-      // }, SYNC_DEBOUNCE_TIME_DEBUG);
-    }
-
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
-    };
-  }, [mutationQueue, existingSyncTo, clearQueue, syncToMutateAsync]);
+        previous = value;
+      },
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+  const lastPublished = existingSyncTo?.lastSyncedAt?.getTime();
+  useEffect(() => { setRetry(0); }, [lastPublished, existingSyncTo?.automatic, queue.length]);
+  useEffect(() => {
+    if (!queue.length || existingSyncTo?.format !== 'v2' || !existingSyncTo.automatic || retry >= 3) return;
+    const timer = window.setTimeout(async () => {
+      if (uploading.current) { setRetry(value => value + 1); return; }
+      uploading.current = true;
+      try {
+        await mutateAsync({ existingSyncTo, automatic: true });
+        acknowledge(queue.length); setRetry(0);
+      } catch {
+        // Failed publication retains queued changes and its durable pending snapshot.
+        setRetry(value => value + 1);
+      } finally { uploading.current = false; }
+    }, retry ? 30000 : 5000);
+    return () => window.clearTimeout(timer);
+  }, [queue, existingSyncTo, acknowledge, mutateAsync, retry]);
 };

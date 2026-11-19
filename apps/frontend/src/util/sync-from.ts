@@ -1,137 +1,169 @@
-import { db } from '../db/db';
+import Dexie from 'dexie';
+import { db, type Sync } from '../db/db';
 import { getPresignedUrlExpirationInfo } from './file/s3-presigned';
-import { type FileRetrievalRequest, type FileRetrievalResponse } from '../shareable/file-retrieval';
+import { getDiffsFromNewImport, handleFileImport, type DiffsResult } from './db/import';
+import { SNAPSHOT_LIMITS, SNAPSHOT_TABLES, type Snapshot, type SnapshotHead, type SnapshotReadResponse } from '../shareable/snapshot';
+import { parseSnapshot } from './sync/snapshot-validation';
+import { localMetadataDigest, metadataDigest, snapshotDiffs, stageSnapshot } from './sync/snapshot-adapter';
+import { boundedJson, v2Post, writerPermission, type ReadPermission } from './sync/api';
+import { legacyTransfer, parseLocation, readPermission, rememberLegacyTransfer } from './sync/location';
+import { hydrateSnapshot, hydrationMessage } from './sync/hydrate';
+import { withCloudSyncLock } from './sync/lock';
+import type { SyncProgress } from './sync';
 
-export async function saveSuccessfulSync(options?: { noOpSync?: boolean; }) {
-  const existingSyncFrom = await db.syncs.where('type').equals('from').first();
-  if (existingSyncFrom && existingSyncFrom.id) {
-    if (options?.noOpSync) {
-      return existingSyncFrom;
-    } else {
-      return await db.syncs.update(existingSyncFrom.id, { lastSyncedAt: new Date() });
-    }
-  } else {
-    return undefined;
+type ImportContext = { sync: Sync; permission: ReadPermission; revision?: string; onProgress?: SyncProgress };
+const contexts = new WeakMap<Blob, ImportContext>();
+export async function saveSuccessfulSync(options?: { noOpSync?: boolean }) {
+  const existing = await db.syncs.where('type').equals('from').first();
+  if (existing?.id && !options?.noOpSync) await db.syncs.update(existing.id, { lastSyncedAt: new Date() });
+}
+export async function saveSyncFromLocation(url: string, alias?: string) {
+  const location = parseLocation(url);
+  const existing = await db.syncs.where('type').equals('from').first();
+  if (existing?.url === location.url && existing.format === location.format && existing.access === location.access) {
+    await db.syncs.update(existing.id!, { alias: alias ?? existing.alias });
+    return;
   }
+  await db.syncs.put({ ...location, id: existing?.id, type: 'from', uploadType: 'manual', createdAt: existing?.createdAt ?? new Date(),
+    alias, automatic: false, importGeneration: crypto.randomUUID() });
 }
 
-export async function saveSyncFromLocation(url: string, alias?: string): Promise<void> {
-  const { filename, expiresAt } = getPresignedUrlExpirationInfo(url);
-
-  const existingSyncFrom = await db.syncs.where('type').equals('from').first();
-
-  if (existingSyncFrom) {
-    await db.syncs.update(existingSyncFrom.id!, {
-      url,
-      filename,
-      expiresAt,
-      lastSyncedAt: new Date(), // Update last synced at when location is saved/updated
-      alias,
-    });
-  } else {
-    await db.syncs.add({
-      type: 'from',
-      url,
-      filename,
-      expiresAt,
-      uploadType: 'manual', // Assuming manual for now
-      createdAt: new Date(),
-      lastSyncedAt: new Date(),
-      alias,
-    });
+async function legacyFile(sync: Sync): Promise<Blob> {
+  // Old persisted signed links are consumed once and replaced with their unsigned location.
+  let current = sync.url?.includes('?') ? sync.url : legacyTransfer(sync.url ?? '');
+  if (sync.url?.includes('?')) {
+    const parsed = parseLocation(sync.url);
+    await db.syncs.update(sync.id!, { url: parsed.url }); sync = { ...sync, url: parsed.url };
   }
+  const renew = async () => {
+    const { pass } = await writerPermission();
+    let response: Response;
+    try { response = await fetch(`${import.meta.env.VITE_FILE_SYNC_BASE_URL}/file-retrieval`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pass, fileName: sync.filename, uploadedType: 'R2' }),
+      cache: 'no-store', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(30000),
+    }); } catch { throw new Error('Legacy sync unavailable'); }
+    if (!response.ok) throw new Error('Legacy retrieval authorization failed. Reopen the old shared link or set the writer pass.');
+    const result = await boundedJson(response) as { url: string };
+    if (typeof result.url !== 'string') throw new Error('Invalid legacy retrieval response');
+    rememberLegacyTransfer(sync.url!, result.url); return result.url;
+  };
+  if (current) {
+    try { if (getPresignedUrlExpirationInfo(current).secondsRemaining < 60) current = undefined; }
+    catch { /* Plain local v1 fixture URLs are also readable. */ }
+  }
+  current ??= await renew();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let response: Response;
+    try { response = await fetch(current, { cache: 'no-store', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(30000) }); }
+    catch { throw new Error('Legacy sync download failed'); }
+    if (response.ok) return response.blob();
+    if (attempt === 0 && [401, 403].includes(response.status)) { current = await renew(); continue; }
+    throw new Error('Legacy sync download failed. Original local data is unchanged.');
+  }
+  throw new Error('Legacy retrieval failed');
 }
 
-import { getDiffsFromNewImport, type DiffsResult } from '../util/db/import'; // Add this import
-
-export async function syncFromDb(): Promise<{ blob: Blob, diffsResult: DiffsResult }> {
-  const existingSyncFrom = await db.syncs.where('type').equals('from').first();
-
-  if (!existingSyncFrom || !existingSyncFrom.url || !existingSyncFrom.filename) {
-    throw new Error('No sync from location configured.');
+export async function syncFromDb(onProgress?: SyncProgress): Promise<{ blob: Blob; diffsResult: DiffsResult }> {
+  const sync = await db.syncs.where('type').equals('from').first();
+  if (!sync?.url) throw new Error('No sync from location configured.');
+  onProgress?.('Fetching metadata...');
+  if (sync.format !== 'v2') {
+    const blob = await legacyFile(sync);
+    return { blob, diffsResult: await getDiffsFromNewImport(blob) };
   }
+  const permission = await readPermission(sync);
+  const head = sync.access === 'share' ? undefined : await v2Post<SnapshotHead>('snapshots/latest', { collectionId: sync.collectionId }, permission);
+  const snapshotId = head?.snapshotId ?? sync.snapshotId;
+  const response = await v2Post<SnapshotReadResponse>('snapshots/read', { collectionId: sync.collectionId, snapshotId }, permission);
+  const snapshot = parseSnapshot(response.snapshot);
+  if (snapshot.collectionId !== sync.collectionId || snapshot.snapshotId !== snapshotId) throw new Error('Snapshot scope mismatch');
+  const blob = new Blob([JSON.stringify(snapshot)], { type: 'application/json' });
+  if (blob.size > SNAPSHOT_LIMITS.byteLength) throw new Error('Snapshot exceeds size limit');
+  contexts.set(blob, { sync, permission, revision: head?.revision, onProgress });
+  const diffsResult = await snapshotDiffs(snapshot);
+  onProgress?.(`Metadata ready; ${snapshot.assets.length} owned images will be checked after import.`);
+  return { blob, diffsResult };
+}
 
-  let currentUrl = existingSyncFrom.url;
-  const { secondsRemaining } = getPresignedUrlExpirationInfo(currentUrl);
-
-  // If expiration is within 1 minute, get a new presigned URL
-  if (secondsRemaining < 60) {
-    console.log('Presigned URL expiring soon, getting a new one...');
-    const passSetting = await db.settings.get('youtubeApiPass'); // Assuming youtubeApiPass is used for file retrieval
-    if (!passSetting || !passSetting.value) {
-      throw new Error('API Pass not set for file retrieval');
-    }
-    const pass = passSetting.value;
-
-    const fileRetrievalRequest: FileRetrievalRequest = {
-      pass,
-      fileName: existingSyncFrom.filename,
-      uploadedType: 'R2', // Assuming R2 as the upload type
-    };
-
-    const fileRetrievalResponse = await fetch(`${import.meta.env.VITE_FILE_SYNC_BASE_URL}/file-retrieval`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(fileRetrievalRequest),
-    });
-
-    if (!fileRetrievalResponse.ok) {
-      if (fileRetrievalResponse.status === 404) {
-        throw new Error(`File not found at sync location: ${existingSyncFrom.filename}`);
-      }
-      throw new Error('Failed to get new retrieval URL');
-    }
-
-    const { url: newRetrievalUrl }: FileRetrievalResponse = await fileRetrievalResponse.json();
-    currentUrl = newRetrievalUrl;
-
-    // Update the existing sync entry with the new URL and expiration
-    const { expiresAt: newExpiresAt } = getPresignedUrlExpirationInfo(currentUrl);
-    await db.syncs.update(existingSyncFrom.id!, { url: newRetrievalUrl, expiresAt: newExpiresAt, lastSyncedAt: new Date() });
+/** Sync manifests use an atomic metadata adapter; full portable backups keep their existing importer. */
+export async function importSyncFile(blob: Blob, options: { automatic?: boolean } = {}): Promise<string> {
+  let value: unknown;
+  try { value = JSON.parse(await blob.text()); } catch { throw new Error('Invalid sync file'); }
+  if (!value || typeof value !== 'object' || !('format' in value) || value.format !== 'go-groceries-snapshot') {
+    await handleFileImport(blob); await saveSuccessfulSync(); return 'Legacy sync imported, including embedded images.';
   }
-
-  // Retrieve the file contents
+  if (blob.size > SNAPSHOT_LIMITS.byteLength) throw new Error('Snapshot exceeds size limit');
+  const { snapshot, temporary } = await stageSnapshot(value);
+  const context = contexts.get(blob);
+  const importGeneration = crypto.randomUUID();
   try {
-    const response = await fetch(currentUrl);
-    if (!response.ok) {
-      if (response.status === 404) {
-        throw new Error(`File not found at the provided URL: ${currentUrl}`);
+    await withCloudSyncLock(async () => {
+    const lastMetadataDigest = await metadataDigest(snapshot.data.tables);
+    const tables = new Map(await Promise.all(SNAPSHOT_TABLES.map(async name => [name, await temporary.table(name).toArray()] as const)));
+    await db.transaction('rw', [...SNAPSHOT_TABLES.map(name => db.table(name)), db.imageUploadJobs, db.imageMigrationJobs, db.syncs], async () => {
+      if (context) {
+        const current = await db.syncs.get(context.sync.id!);
+        if (!current || current.url !== context.sync.url || current.importGeneration !== context.sync.importGeneration) {
+          throw new Error('The sync source or imported revision changed. Fetch metadata again; current data is retained.');
+        }
       }
-      throw new Error(`Failed to retrieve file from ${currentUrl}. ${response.statusText}`);
-    }
-    // For now, just show a success message.
-    const blob = await response.blob();
-    const diffsResult = await getDiffsFromNewImport(blob); // Call getDiffsFromNewImport here
-    return { blob, diffsResult };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
-    console.error('Error retrieving file:', error);
-    throw new Error(`Failed to retrieve file: ${error.message || 'Unknown error'}`);
+      if (options.automatic && context) {
+        const current = await db.syncs.get(context.sync.id!);
+        const writer = await db.syncs.where('type').equals('to').first();
+        const baseline = current?.lastMetadataDigest ?? (writer?.collectionId === snapshot.collectionId ? writer.lastMetadataDigest : undefined);
+        if (!baseline || writer?.collectionId === snapshot.collectionId && writer.pendingPublication ||
+            await Dexie.waitFor(localMetadataDigest()) !== baseline) {
+          throw new Error('Local changes need confirmation. Import manually in Sync settings; current data is retained.');
+        }
+      }
+      for (const name of SNAPSHOT_TABLES) { await db.table(name).clear(); await db.table(name).bulkPut(tables.get(name)!); }
+      await db.imageMigrationJobs.clear();
+      for (const asset of snapshot.assets) {
+        if (!await db.imageUploadJobs.get(asset.assetId)) await db.imageUploadJobs.put({ assetId: asset.assetId, createdAt: new Date().toISOString() });
+      }
+      if (context) {
+        await db.syncs.update(context.sync.id!, { snapshotId: snapshot.snapshotId, revision: context.revision,
+          lastSyncedAt: new Date(), lastMetadataDigest, importGeneration, cachedImages: 0, totalImages: snapshot.assets.length });
+        // An explicit latest import resolves a writer conflict; it is not an automatic overwrite retry.
+        if (context.revision) {
+          const writer = await db.syncs.where('type').equals('to').first();
+          if (writer?.collectionId === snapshot.collectionId) await db.syncs.update(writer.id!, {
+            revision: context.revision, snapshotId: snapshot.snapshotId, pendingPublication: undefined, lastMetadataDigest,
+          });
+        }
+      }
+    });
+    });
+  } finally { await temporary.delete(); }
+  context?.onProgress?.('Metadata imported. Hydrating images...');
+  let result: Awaited<ReturnType<typeof hydrateSnapshot>>;
+  try {
+    const permission = context?.permission ?? await writerPermission();
+    result = await hydrateSnapshot(snapshot as Snapshot, permission, context?.onProgress);
+  } catch {
+    result = { cached: 0, total: snapshot.assets.length, failures: ['Image authorization unavailable. Reopen the source link.'] };
   }
+  if (context) await db.transaction('rw', db.syncs, async () => {
+    const current = await db.syncs.get(context.sync.id!);
+    if (current?.snapshotId === snapshot.snapshotId && current.collectionId === snapshot.collectionId &&
+        current.url === context.sync.url && current.importGeneration === importGeneration) await db.syncs.update(context.sync.id!, { cachedImages: result.cached, totalImages: result.total });
+  });
+  const message = hydrationMessage(result); context?.onProgress?.(message); return message;
 }
 
-export async function checkAndTriggerAutoSync(): Promise<{ blob: Blob, diffsResult: DiffsResult, outcome: 'SUCCESS' } | { outcome: 'RECENT_SYNC' | 'ERROR' } | null> {
-  const existingSyncFrom = await db.syncs.where('type').equals('from').first();
-
-  if (existingSyncFrom && existingSyncFrom.automatic && existingSyncFrom.lastSyncedAt) {
-    const oneHourAgo = new Date();
-    oneHourAgo.setHours(oneHourAgo.getHours() - 1);
-
-    if (existingSyncFrom.lastSyncedAt < oneHourAgo) {
-      console.log(`Automatic sync triggered for Sync From. Last sync time ${existingSyncFrom.lastSyncedAt?.toISOString()}`);
-      try {
-        const { blob, diffsResult } = await syncFromDb(); // Call the modified syncFromDb
-        return { blob, diffsResult, outcome: 'SUCCESS' };
-      } catch (error) {
-        console.error('Automatic sync failed:', error);
-        return { outcome: 'ERROR' };
-      }
-    } else {
-      console.log(`No sync [from] required for at least another: ${Math.floor((existingSyncFrom.lastSyncedAt.getTime() + 3600000 - new Date().getTime()) / 60000)} minutes`);
-      return { outcome: 'RECENT_SYNC' };
+export async function checkAndTriggerAutoSync(): Promise<{ blob: Blob; diffsResult: DiffsResult; outcome: 'SUCCESS'; needsConfirmation: boolean } | { outcome: 'RECENT_SYNC' | 'ERROR' } | null> {
+  const sync = await db.syncs.where('type').equals('from').first();
+  if (!sync?.automatic) return null;
+  if (sync.lastSyncedAt && Date.now() - sync.lastSyncedAt.getTime() < 3600000) return { outcome: 'RECENT_SYNC' };
+  try {
+    const result = await syncFromDb();
+    const writer = await db.syncs.where('type').equals('to').first();
+    const baseline = sync.lastMetadataDigest ?? (writer?.collectionId === sync.collectionId ? writer?.lastMetadataDigest : undefined);
+    let needsConfirmation = true;
+    if (baseline && !(writer?.collectionId === sync.collectionId && writer?.pendingPublication)) {
+      try { needsConfirmation = await localMetadataDigest() !== baseline; } catch { /* Retain unresolved originals. */ }
     }
+    return { ...result, outcome: 'SUCCESS', needsConfirmation };
   }
-  return null;
+  catch { return { outcome: 'ERROR' }; }
 }

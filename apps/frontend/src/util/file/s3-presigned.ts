@@ -3,13 +3,12 @@ export function getPresignedUrlExpirationInfo(url: string): {
   secondsRemaining: number;
   filename: string;
 } {
-  try {
     const parsedUrl = new URL(url);
     const xAmzDate = parsedUrl.searchParams.get('X-Amz-Date');
     const xAmzExpires = parsedUrl.searchParams.get('X-Amz-Expires');
 
     if (!xAmzDate || !xAmzExpires) {
-      throw new Error(`No date or expiration given on ${url}`);
+      throw new Error('No signature date or expiration');
     }
 
     // Convert X-Amz-Date (e.g. 20250913T234617Z) to a JS Date
@@ -33,7 +32,7 @@ export function getPresignedUrlExpirationInfo(url: string): {
     const filename = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : null;
 
     if (!filename) {
-      throw new Error(`File name not found in ${url}`)
+      throw new Error('File name not found')
     }
 
     return {
@@ -41,8 +40,4 @@ export function getPresignedUrlExpirationInfo(url: string): {
       secondsRemaining,
       filename,
     };
-  } catch (err) {
-    console.error('Failed to parse presigned URL expiration:', err);
-    throw err;
-  }
 }

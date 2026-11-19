@@ -109,7 +109,10 @@ export const handleFileImport = async (file: Blob): Promise<void> => {
       }
       await db.imageMigrationJobs.clear();
       await db.imageMigrationJobs.bulkPut(migrationJobs);
-      await db.imageUploadJobs.bulkPut(uploadJobs);
+      for (const job of uploadJobs) {
+        const previous = await db.imageUploadJobs.get(job.assetId);
+        await db.imageUploadJobs.put({ ...previous, ...job, collections: previous?.collections });
+      }
     });
   } finally { await temporary.delete(); }
 };

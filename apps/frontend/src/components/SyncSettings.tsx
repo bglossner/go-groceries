@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Typography, Box, Button, CircularProgress, Checkbox, FormControlLabel, TextField, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type Sync } from '../db/db';
-import { saveSyncFromLocation, syncFromDb } from '../util/sync-from';
-import { getPresignedUrlExpirationInfo } from '../util/file/s3-presigned';
-import { handleFileImport } from '../util/db/import';
+import { importSyncFile, saveSyncFromLocation, syncFromDb } from '../util/sync-from';
+import { parseLocation } from '../util/sync/location';
+import { createShareLink } from '../util/sync/share';
 import { useDiffsModal } from '../hooks/useDiffsModal';
 import { useSyncTo } from '../hooks/useSyncTo';
 
@@ -13,7 +13,8 @@ export const SyncSettings: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [automaticSync, setAutomaticSync] = useState(false);
   const { openDiffsModal, showErrorToast, showSuccessToast } = useDiffsModal();
-  const { existingSyncTo, syncToMutation } = useSyncTo();
+  const { existingSyncTo, syncToMutation, progress: uploadProgress } = useSyncTo();
+  const [downloadProgress, setDownloadProgress] = useState('');
 
   const [syncFromUrlInput, setSyncFromUrlInput] = useState('');
   const [syncFromAliasInput, setSyncFromAliasInput] = useState('');
@@ -28,7 +29,7 @@ export const SyncSettings: React.FC = () => {
     if (existingSyncFrom && syncFromUrlInput) {
       let currentFilename: string | null = null;
       try {
-        currentFilename = getPresignedUrlExpirationInfo(syncFromUrlInput).filename;
+        currentFilename = parseLocation(syncFromUrlInput).filename;
       } catch {
         // Ignore error, filename will remain null
       }
@@ -64,25 +65,15 @@ export const SyncSettings: React.FC = () => {
 
   const syncFromDbMutation = useMutation({
     mutationFn: async () => {
-      const { blob, diffsResult } = await syncFromDb(); // syncFromDb now returns blob and diffsResult
-
-      if (diffsResult.mealDiffs.toAdd.length > 0 || diffsResult.mealDiffs.toRemove.length > 0) {
-        openDiffsModal(diffsResult, blob, () => { showSuccessToast('Sync from successful!') }); // Use context to open modal
+      const { blob, diffsResult } = await syncFromDb(setDownloadProgress);
+      if (diffsResult.mealDiffs.toAdd.length || diffsResult.mealDiffs.toRemove.length) {
+        openDiffsModal(diffsResult, blob, () => { void queryClient.invalidateQueries(); });
       } else {
-        await handleFileImport(blob);
-        if (existingSyncFrom && existingSyncFrom.id) {
-          await db.syncs.update(existingSyncFrom.id, { lastSyncedAt: new Date() });
-        }
-        queryClient.invalidateQueries({ queryKey: ['syncFrom'] });
-        showSuccessToast('Sync from successful!'); // Handled by useSyncTo
+        const message = await importSyncFile(blob);
+        await queryClient.invalidateQueries(); showSuccessToast(message);
       }
     },
-    onSuccess: () => {
-      // Handled within mutationFn based on diffs
-    },
-    onError: (error: unknown) => {
-      showErrorToast(`Error syncing from DB: ${(error as Error).message}`);
-    },
+    onError: (error: Error) => { setDownloadProgress(error.message); showErrorToast(error.message); },
   });
 
   useEffect(() => {
@@ -114,7 +105,7 @@ export const SyncSettings: React.FC = () => {
     setSyncConfirmOpen(false);
     setSyncing(true);
     try {
-      await syncToMutation.mutateAsync({ automatic: false });
+      await syncToMutation.mutateAsync({ automatic: false, newLocation: true });
     } finally {
       setSyncing(false);
     }
@@ -131,25 +122,19 @@ export const SyncSettings: React.FC = () => {
   const handleSyncNow = async () => {
     setSyncing(true);
     try {
-      await syncToMutation.mutateAsync({ automatic: automaticSync });
+      await syncToMutation.mutateAsync({ existingSyncTo: existingSyncTo ?? undefined, automatic: automaticSync });
     } finally {
       setSyncing(false);
     }
   };
 
-  const handleShare = () => {
-    if (existingSyncTo?.url) {
-      if (navigator.share) {
-        navigator.share({
-          title: 'Groceries Backup',
-          text: 'Here is your groceries backup file.',
-          url: existingSyncTo.url,
-        });
-      } else {
-        navigator.clipboard.writeText(existingSyncTo.url);
-        showSuccessToast('URL copied to clipboard!');
-      }
-    }
+  const handleShare = async () => {
+    if (!existingSyncTo) return;
+    try {
+      const url = await createShareLink(existingSyncTo);
+      if (navigator.share) await navigator.share({ title: 'Groceries read-only share', text: 'Read-only snapshot; link expires in 7 days.', url });
+      else { await navigator.clipboard.writeText(url); showSuccessToast('Read-only link copied. It expires in 7 days.'); }
+    } catch (error) { showErrorToast(error instanceof Error ? error.message : 'Sharing failed'); }
   };
 
   const updateSyncFromAutomaticMutation = useMutation({
@@ -181,13 +166,13 @@ export const SyncSettings: React.FC = () => {
         Sync To
       </Typography>
 
-      {!existingSyncTo && (
+      {(!existingSyncTo || existingSyncTo.format !== 'v2') && (
         <Button variant="contained" onClick={handleSyncTo} disabled={syncing}>
           Sync To Cloud
         </Button>
       )}
 
-      {existingSyncTo && (
+      {existingSyncTo?.format === 'v2' && (
         <>
           <Button variant="contained" onClick={handleSyncNow} disabled={syncing}>
             Sync Now
@@ -205,10 +190,12 @@ export const SyncSettings: React.FC = () => {
       )}
 
       {syncing && <CircularProgress size={24} sx={{ ml: 2 }} />}
+      {uploadProgress && <Typography role="status" aria-live="polite" sx={{ mt: 1 }}>{uploadProgress}</Typography>}
 
-      {existingSyncTo?.url && (
+      {existingSyncTo?.format === 'v2' && existingSyncTo.snapshotId && (
         <Box sx={{ mt: 2 }}>
-          <Typography color="success">Sync location is set up!</Typography>
+          <Typography color="success">V2 sync location is set up. Share links are read-only and expire in 7 days.</Typography>
+          <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>Writer collection URL: {existingSyncTo.url}</Typography>
           <Button variant="contained" onClick={handleShare} sx={{ mt: 1 }}>
             Share URL
           </Button>
@@ -244,8 +231,15 @@ export const SyncSettings: React.FC = () => {
           {isUpdatingSyncFrom ? 'Update Sync Location' : 'Save New Sync Location'}
         </Button>
         {saveSyncFromMutation.isPending && <CircularProgress size={24} sx={{ ml: 2 }} />}
+        {downloadProgress && <Typography role="status" aria-live="polite" sx={{ mt: 1 }}>{downloadProgress}</Typography>}
         {existingSyncFrom && (
           <Box sx={{ mt: 2 }}>
+            {existingSyncFrom.format === 'v2' && (
+              <Typography variant="body2">
+                {existingSyncFrom.access === 'share' ? 'Read-only shared snapshot. Reopen the original link after closing this session.' : 'Writer collection; follows latest metadata.'}
+                {existingSyncFrom.totalImages !== undefined && ` ${existingSyncFrom.cachedImages ?? 0}/${existingSyncFrom.totalImages} owned images available offline.`}
+              </Typography>
+            )}
             <Typography variant="body2">
               Last synced from: {existingSyncFrom.lastSyncedAt?.toLocaleString()}
               {existingSyncFrom.alias && ` (Alias: ${existingSyncFrom.alias})`}
@@ -288,8 +282,9 @@ export const SyncSettings: React.FC = () => {
         <DialogTitle>Confirm Sync to Cloud</DialogTitle>
         <DialogContent>
           <Typography>
-            Syncing makes all your meals available to anyone you share a link with.
-            Are you sure you'd like to sync?
+            Create a new v2 cloud location with metadata and private images. Old sync files remain unchanged.
+            All holders of the shared writer pass can access this collection. Shared read-only links expire in 7 days.
+            Confirm to upload this collection.
           </Typography>
         </DialogContent>
         <DialogActions>

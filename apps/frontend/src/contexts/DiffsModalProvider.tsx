@@ -1,10 +1,9 @@
 import React, { useState, type ReactNode, useCallback } from 'react';
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Box, List, ListItem } from '@mui/material';
-import { handleFileImport } from '../util/db/import';
+import { importSyncFile } from '../util/sync-from';
 import { useQueryClient } from '@tanstack/react-query';
 import { type Meal } from '../db/db';
 import { DiffsModalContext } from './DiffsModalContext';
-import { saveSuccessfulSync } from '../util/sync-from';
 import { useToast } from '../hooks/useToast';
 
 export const DiffsModalProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -12,6 +11,7 @@ export const DiffsModalProvider: React.FC<{ children: ReactNode }> = ({ children
   const [diffsModalOpen, setDiffsModalOpen] = useState(false);
   const [diffs, setDiffs] = useState<{ mealDiffs: { toAdd: Meal[], toRemove: Meal[] } } | null>(null);
   const [importBlob, setImportBlob] = useState<Blob | null>(null);
+  const [importing, setImporting] = useState(false);
   const [onConfirm, setOnConfirm] = useState<(() => void) | null>(null);
   const { showSuccessToast, showErrorToast } = useToast();
 
@@ -30,19 +30,20 @@ export const DiffsModalProvider: React.FC<{ children: ReactNode }> = ({ children
   }, [setDiffs, setImportBlob, setOnConfirm, setDiffsModalOpen]);
 
   const handleConfirmImport = async () => {
-    if (importBlob) {
-      await handleFileImport(importBlob);
-      await saveSuccessfulSync();
-      queryClient.invalidateQueries();
-      if (onConfirm) {
-        onConfirm(); // Call the callback
-      }
-    }
-    closeDiffsModal();
+    if (!importBlob || importing) return;
+    setImporting(true);
+    try {
+      const message = await importSyncFile(importBlob);
+      await queryClient.invalidateQueries();
+      onConfirm?.();
+      showSuccessToast(message);
+      closeDiffsModal();
+    } catch (error) { showErrorToast(error instanceof Error ? error.message : 'Import failed; retry sync.'); }
+    finally { setImporting(false); }
   };
 
   const handleCancelImport = () => {
-    closeDiffsModal();
+    if (!importing) closeDiffsModal();
   };
 
   return (
@@ -52,7 +53,8 @@ export const DiffsModalProvider: React.FC<{ children: ReactNode }> = ({ children
         <DialogTitle>Confirm Import with Changes</DialogTitle>
         <DialogContent>
           <Typography>
-            The imported data contains the following changes to your meals:
+            Import replaces local meals, recipes, lists and other metadata, including image-only changes.
+            Any unsynced local edits will be replaced. The following meal names changed:
           </Typography>
           {diffs && diffs.mealDiffs.toAdd.length > 0 && (
             <Box sx={{ mt: 2 }}>
@@ -83,8 +85,8 @@ export const DiffsModalProvider: React.FC<{ children: ReactNode }> = ({ children
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCancelImport} color="error">Cancel</Button>
-          <Button onClick={handleConfirmImport} autoFocus>Confirm Import</Button>
+          <Button onClick={handleCancelImport} disabled={importing} color="error">Cancel</Button>
+          <Button onClick={handleConfirmImport} disabled={importing} autoFocus>Confirm Import</Button>
         </DialogActions>
       </Dialog>
     </DiffsModalContext.Provider>

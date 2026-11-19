@@ -32,7 +32,11 @@ export const cacheImage = async (blob: Blob, database = db): Promise<AssetRef> =
     // Read back the stored copy before any caller replaces its original.
     await verifyCachedAsset((await database.imageAssets.get(assetId))!);
   }
-  await database.imageUploadJobs.put({ assetId, createdAt: existing?.cachedAt ?? new Date().toISOString() });
+  await database.transaction('rw', database.imageUploadJobs, async () => {
+    if (!await database.imageUploadJobs.get(assetId)) {
+      await database.imageUploadJobs.put({ assetId, createdAt: existing?.cachedAt ?? new Date().toISOString() });
+    }
+  });
   return { kind: 'asset', assetId, ...(blob instanceof File ? { name: blob.name, lastModified: blob.lastModified } : {}) };
 };
 

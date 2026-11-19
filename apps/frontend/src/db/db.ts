@@ -4,6 +4,7 @@ import type { Ingredient } from '../types/ingredients';
 import { useMutationQueueStore } from '../store/mutationQueueStore';
 import { addDateConverterHooks } from './date-converter';
 import type { ImageRef } from '../shareable/image-assets';
+import type { Snapshot } from '../shareable/snapshot';
 
 export type MealImage = { isThumbnail?: boolean; } & ({
   type: 'url';
@@ -70,6 +71,7 @@ export interface ImageMigrationJob {
 export interface ImageUploadJob {
   assetId: string;
   createdAt: string;
+  collections?: Record<string, { verifiedAt: string }>;
 }
 
 export interface Recipe {
@@ -124,6 +126,16 @@ export interface IngredientStore {
 }
 
 export interface Sync {
+  format?: 'v2';
+  collectionId?: string;
+  snapshotId?: string;
+  revision?: string;
+  access?: 'writer' | 'share';
+  pendingPublication?: { snapshot: Snapshot; expectedRevision: string | null };
+  importGeneration?: string;
+  lastMetadataDigest?: string;
+  cachedImages?: number;
+  totalImages?: number;
   id?: number;
   type: 'to' | 'from';
   filename: string;
