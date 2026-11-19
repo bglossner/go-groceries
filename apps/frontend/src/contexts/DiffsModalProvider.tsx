@@ -33,7 +33,7 @@ export const DiffsModalProvider: React.FC<{ children: ReactNode }> = ({ children
     if (importBlob) {
       await handleFileImport(importBlob);
       await saveSuccessfulSync();
-      queryClient.invalidateQueries({ queryKey: ['syncFrom'] });
+      queryClient.invalidateQueries();
       if (onConfirm) {
         onConfirm(); // Call the callback
       }

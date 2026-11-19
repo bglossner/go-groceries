@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { db, type Recipe, type Meal, type PendingRecipe } from '../db/db';
+import { db, type Recipe, type Meal, type PendingRecipe, type RecipeImage } from '../db/db';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, TextField, Typography, Box, IconButton, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Checkbox } from '@mui/material';
 import { Edit, ArrowBack } from '@mui/icons-material';
@@ -9,6 +9,9 @@ import { useState, useEffect, useRef } from 'react';
 import { recipeSchema, type RecipeForm } from '../types/recipe';
 import { convertFilesToImageBlobs, imageUrlResolver, mapMealRecipeImagesToRecipeImages } from '../util/images';
 import EnlargedImage from '../components/EnlargedImage';
+import StoredImage from '../components/StoredImage';
+import { normalizeRecipeImages } from '../db/image-cache';
+import { useToast } from '../hooks/useToast';
 
 export const Route = createFileRoute('/recipe/$mealId')({
   component: RecipeComponent,
@@ -21,22 +24,14 @@ function RecipeComponent() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<RecipeImage | null>(null);
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [imagesToDelete, setImagesToDelete] = useState<number[]>([]);
   const [thumbnailToUpdate, setThumbnailToUpdate] = useState<{isChecked: boolean, imageIndex: number} | null>(null);
   const initialRecipeExists = useRef<boolean | null>(null);
   const recipeLookedUp = useRef(false);
 
-  const updateMealMutation = useMutation({
-    mutationFn: async (updatedMeal: Meal) => {
-      await db.meals.put(updatedMeal);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['meal', mealId] });
-      queryClient.invalidateQueries({ queryKey: ['meals'] });
-    },
-  });
+  const { showErrorToast } = useToast();
 
   const { data: meal } = useQuery<Meal | undefined>({
     queryKey: ['meal', mealId],
@@ -103,100 +98,51 @@ function RecipeComponent() {
     setImageUrlInput('');
   }, [isEditMode]);
 
-  const handleImportRecipe = () => {
+  const handleImportRecipe = async () => {
     if (!pendingRecipe) return;
-    reset({
-      url: pendingRecipe.sourceUrl,
-      notes: pendingRecipe.content,
-      images: mapMealRecipeImagesToRecipeImages(pendingRecipe.images),
-    });
-    setIsDirty(true);
+    try {
+      const images = await mapMealRecipeImagesToRecipeImages(pendingRecipe.images);
+      reset({ url: pendingRecipe.sourceUrl, notes: pendingRecipe.content, images });
+      setIsDirty(true);
+    } catch (error) { showErrorToast(`Original recipe retained: ${(error as Error).message}`); }
   };
 
   const mutation = useMutation({
     mutationFn: async (formData: RecipeForm) => {
       const recipeData: Omit<Recipe, 'id'> = {
-        mealId: Number(mealId),
-        url: formData.url || '',
-        notes: formData.notes || '',
-        images: (formData.images || []),
+        mealId: Number(mealId), url: formData.url || '', notes: formData.notes || '',
+        images: await normalizeRecipeImages(formData.images),
       };
-
-      if (recipe?.id) {
-        return db.recipes.put({ ...recipeData, id: recipe.id });
-      } else {
-        return db.recipes.add(recipeData);
-      }
-    },
-    onSuccess: async () => {
-      if (meal?.pendingRecipeId) {
-        await db.pendingRecipes.delete(meal.pendingRecipeId);
-        await db.meals.update(meal.id!, { pendingRecipeId: undefined });
-        queryClient.invalidateQueries({ queryKey: ['meals'] });
-      }
-      queryClient.invalidateQueries({ queryKey: ['recipe', mealId] });
-      setIsEditMode(false);
-      setIsDirty(false);
-
-      if (imagesToDelete.length > 0) {
-        if (!meal || !recipe) return;
-        let updatedMealImages = meal.images ? [...meal.images] : [];
-        imagesToDelete.forEach(imageIndex => {
-          updatedMealImages = updatedMealImages
-            .filter(
-              (mi) =>
-                !(
-                  mi.type === "recipeImage" &&
-                  mi.recipeId === Number(mealId) &&
-                  mi.imageIndex === imageIndex
-                )
-            )
-            .map((mi) => {
-              if (
-                mi.type === "recipeImage" &&
-                mi.recipeId === Number(mealId) &&
-                mi.imageIndex > imageIndex
-              ) {
-                return { ...mi, imageIndex: mi.imageIndex - 1 };
-              }
-              return mi;
-            });
+      return db.transaction('rw', db.recipes, db.meals, db.pendingRecipes, async () => {
+        const recipeId = recipe?.id ? await db.recipes.put({ ...recipeData, id: recipe.id }) : await db.recipes.add(recipeData);
+        const currentMeal = await db.meals.get(Number(mealId));
+        if (!currentMeal) throw new Error('Meal was deleted');
+        let images = (currentMeal.images ?? []).flatMap(image => {
+          if (image.type !== 'recipeImage' || image.recipeId !== recipeId) return [image];
+          if (imagesToDelete.includes(image.imageIndex)) return [];
+          return [{ ...image, imageIndex: image.imageIndex - imagesToDelete.filter(index => index < image.imageIndex).length }];
         });
-        await db.meals.update(meal.id!, { images: updatedMealImages });
-        setImagesToDelete([]);
-      }
-
-      if (thumbnailToUpdate) {
-        if (!meal) return;
-
-        let updatedImages = meal.images ? [...meal.images] : [];
-
-        if (thumbnailToUpdate.isChecked) {
-          updatedImages = updatedImages.filter(image => !image.isThumbnail);
+        if (thumbnailToUpdate) {
+          if (thumbnailToUpdate.isChecked) images = images.map(image => ({ ...image, isThumbnail: false }));
+          const existing = images.find(image => image.type === 'recipeImage' && image.recipeId === recipeId && image.imageIndex === thumbnailToUpdate.imageIndex);
+          if (existing) existing.isThumbnail = thumbnailToUpdate.isChecked;
+          else if (thumbnailToUpdate.isChecked) images.push({ type: 'recipeImage', recipeId: recipeId as number,
+            imageIndex: thumbnailToUpdate.imageIndex, isThumbnail: true });
         }
-
-        const existingImageIndex = updatedImages.findIndex(
-          (img) =>
-            img.type === "recipeImage" &&
-            img.recipeId === Number(mealId) &&
-            img.imageIndex === thumbnailToUpdate.imageIndex
-        );
-
-        if (existingImageIndex !== -1) {
-          updatedImages[existingImageIndex].isThumbnail = thumbnailToUpdate.isChecked;
-        } else if (thumbnailToUpdate.isChecked) {
-          updatedImages.push({
-            type: "recipeImage",
-            recipeId: Number(mealId),
-            imageIndex: thumbnailToUpdate.imageIndex,
-            isThumbnail: true,
-          });
+        await db.meals.update(Number(mealId), { images, pendingRecipeId: undefined });
+        if (currentMeal.pendingRecipeId && !await db.meals.where('pendingRecipeId').equals(currentMeal.pendingRecipeId).count()) {
+          await db.pendingRecipes.delete(currentMeal.pendingRecipeId);
         }
-
-        updateMealMutation.mutate({ ...meal, images: updatedImages });
-        setThumbnailToUpdate(null);
-      }
+        return recipeId;
+      });
     },
+    onSuccess: async (recipeId) => {
+      const saved = await db.recipes.get(recipeId);
+      if (saved) reset({ url: saved.url, notes: saved.notes, images: saved.images });
+      queryClient.invalidateQueries();
+      setIsEditMode(false); setIsDirty(false); setImagesToDelete([]); setThumbnailToUpdate(null);
+    },
+    onError: error => showErrorToast(`Recipe was not saved: ${error.message}`),
   });
 
   const onSubmit = (data: RecipeForm) => {
@@ -216,6 +162,7 @@ function RecipeComponent() {
   };
 
   const handleConfirmDiscard = () => {
+    setImagesToDelete([]); setThumbnailToUpdate(null);
     setDiscardConfirmOpen(false);
     setIsDirty(false);
     if (initialRecipeExists.current) {
@@ -237,6 +184,14 @@ function RecipeComponent() {
       alert(error);
       return [];
     }
+  };
+
+  const originalImageIndex = (index: number) => {
+    let originalIndex = index;
+    for (const removed of [...imagesToDelete].sort((a, b) => a - b)) {
+      if (removed <= originalIndex) originalIndex++;
+    }
+    return originalIndex;
   };
 
   const handleThumbnailChange = (isChecked: boolean, imageIndex: number) => {
@@ -346,14 +301,14 @@ function RecipeComponent() {
                   </Box>
                   <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', flexWrap: 'wrap', p: 1 }}>
                     {(field.value && field.value.length > 0) ? (
-                      field.value.map((image: File | string, index: number) => (
+                      field.value.map((image: RecipeImage, index: number) => (
                         <Box key={index} sx={{ position: 'relative' }}>
-                          <img
-                            src={typeof image === 'string' ? image : URL.createObjectURL(image)}
+                          <StoredImage
+                            image={image}
                             alt={`recipe-${index}`}
                             width="150"
                             style={{ border: '1px solid black', cursor: 'pointer' }}
-                            onClick={() => setSelectedImage(typeof image === 'string' ? image : URL.createObjectURL(image))}
+                            onClick={() => setSelectedImage(image)}
                           />
                           <IconButton
                             sx={{
@@ -368,7 +323,11 @@ function RecipeComponent() {
                               const newImages = [...(field.value || [])];
                               newImages.splice(index, 1);
                               field.onChange(newImages);
-                              setImagesToDelete([...imagesToDelete, index]);
+                              const originalIndex = originalImageIndex(index);
+                              if (originalIndex < (recipe?.images.length ?? 0)) setImagesToDelete([...imagesToDelete, originalIndex]);
+                              if (thumbnailToUpdate) setThumbnailToUpdate(thumbnailToUpdate.imageIndex === index ? null : {
+                                ...thumbnailToUpdate, imageIndex: thumbnailToUpdate.imageIndex > index ? thumbnailToUpdate.imageIndex - 1 : thumbnailToUpdate.imageIndex,
+                              });
                               setIsDirty(true);
                             }}
                           >
@@ -383,8 +342,8 @@ function RecipeComponent() {
                                     (meal?.images?.some(
                                       (mi) =>
                                         mi.type === "recipeImage" &&
-                                        mi.recipeId === Number(mealId) &&
-                                        mi.imageIndex === index &&
+                                        mi.recipeId === recipe?.id &&
+                                        mi.imageIndex === originalImageIndex(index) &&
                                         mi.isThumbnail
                                     ) && thumbnailToUpdate === null) || false
                                   }
@@ -414,26 +373,20 @@ function RecipeComponent() {
           ) : (
             recipe && recipe.images && recipe.images.length > 0 ? (
               <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', flexWrap: 'wrap', p: 1 }}>
-                {recipe.images.map((image: File | string, index: number) => (
+                {recipe.images.map((image: RecipeImage, index: number) => (
                   <Box key={index} sx={{ position: "relative" }}>
-                    <img
+                    <StoredImage
                       key={index}
-                      src={typeof image === "string" ? image : URL.createObjectURL(image)}
+                      image={image}
                       alt={`recipe-${index}`}
                       width="150"
                       style={{ border: "1px solid black" }}
-                      onClick={() =>
-                        setSelectedImage(
-                          typeof image === "string"
-                            ? image
-                            : URL.createObjectURL(image)
-                        )
-                      }
+                      onClick={() => setSelectedImage(image)}
                     />
                     {meal?.images?.some(
                       (mi) =>
                         mi.type === "recipeImage" &&
-                        mi.recipeId === Number(mealId) &&
+                        mi.recipeId === recipe?.id &&
                         mi.imageIndex === index &&
                         mi.isThumbnail
                     ) && (

@@ -12,8 +12,12 @@ import FromYoutubeMealCreation from '../components/FromYoutubeMealCreation';
 import FromImagesMealCreation from '../components/FromImagesMealCreation';
 import { mealFormSchema, type MealForm } from '../types/meals';
 import type { MealGenerationDataInput } from '../shareable/meals';
-import { mapMealRecipeImagesToRecipeImages } from '../util/images';
+import { saveMeal } from '../db/save-meal';
+import { useToast } from '../hooks/useToast';
 import EnlargedImage from '../components/EnlargedImage';
+import StoredImage from '../components/StoredImage';
+import { mealThumbnail } from '../db/meal-images';
+import type { RecipeImage } from '../db/db';
 import AddToGroceryListModal from '../components/AddToGroceryListModal';
 
 const capitalize = (s: string) => s.replace(/\b\w/g, l => l.toUpperCase());
@@ -24,6 +28,7 @@ let sessionStartTime = new Date();
 
 const Meals: React.FC = () => {
   const queryClient = useQueryClient();
+  const { showErrorToast } = useToast();
   const [open, setOpen] = useState(false);
   const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null);
   const [openCreationTypeSelection, setOpenCreationTypeSelection] = useState(false);
@@ -41,7 +46,7 @@ const Meals: React.FC = () => {
   const [selectedFilterTags, setSelectedFilterTags] = useState<Tag[]>([]);
   const [sortBy, setSortBy] = useState<'name' | 'createdAt' | 'updatedAt'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<RecipeImage | null>(null);
   const [highlightedMealId, setHighlightedMealId] = useState<number | null>(null);
   const mealRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
@@ -143,18 +148,20 @@ const Meals: React.FC = () => {
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
 
   const mutation = useMutation({
-    mutationFn: async (meal: Meal) => {
-      if (meal.id) {
-        await db.meals.put(meal);
-        return meal.id;
-      } else {
-        return db.meals.add(meal);
-      }
-    },
+    mutationFn: (meal: Meal) => saveMeal(meal, pendingRecipeInfo),
+    onError: error => showErrorToast(`Meal was not saved: ${error.message}`),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number) => db.meals.delete(id),
+    mutationFn: (id: number) => db.transaction('rw', db.meals, db.recipes, db.pendingRecipes, async () => {
+      const meal = await db.meals.get(id);
+      await db.recipes.where('mealId').equals(id).delete();
+      await db.meals.delete(id);
+      if (meal?.pendingRecipeId && !await db.meals.where('pendingRecipeId').equals(meal.pendingRecipeId).count()) {
+        await db.pendingRecipes.delete(meal.pendingRecipeId);
+      }
+      // Shared cached bytes are retained; automatic cache/remote GC is intentionally absent.
+    }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['meals'] });
       setDeleteConfirmOpen(false);
@@ -266,37 +273,9 @@ const Meals: React.FC = () => {
       updatedAt: now,
     };
 
-    if (pendingRecipeInfo && !pendingRecipeInfo.createRecipe) {
-      const pendingId = crypto.randomUUID();
-      await db.pendingRecipes.add({
-        id: pendingId,
-        content: pendingRecipeInfo.content,
-        sourceUrl: pendingRecipeInfo.sourceUrl,
-        createdAt: now,
-        images: pendingRecipeInfo.images,
-      });
-      mealPayload.pendingRecipeId = pendingId;
-    }
-
     mutation.mutate(mealPayload, {
-      onSuccess: async (mealId) => {
-        if (pendingRecipeInfo?.createRecipe && mealId) {
-          const images = mapMealRecipeImagesToRecipeImages(pendingRecipeInfo.images);
-          const recipeId = await db.recipes.add({
-            mealId: mealId as number,
-            url: pendingRecipeInfo.sourceUrl,
-            notes: pendingRecipeInfo.content ?? '',
-            images,
-          });
-          queryClient.invalidateQueries({ queryKey: ['recipes'] });
-
-          const hasThumbnail = images?.length === 1 && (!mealPayload.images || mealPayload.images.length === 0);
-          if (hasThumbnail) {
-            // The meal was already created, so we need to update it with the thumbnail information.
-            await db.meals.update(mealId, { images: [{ imageIndex: 0, isThumbnail: true, type: 'recipeImage', recipeId }] });
-          }
-        }
-
+      onSuccess: async () => {
+        queryClient.invalidateQueries({ queryKey: ['recipes'] });
         queryClient.invalidateQueries({ queryKey: ['meals'] });
         queryClient.invalidateQueries({ queryKey: ['tags'] });
         setOpen(false);
@@ -378,31 +357,21 @@ const Meals: React.FC = () => {
           const matchesTags = selectedFilterTags.every(filterTag => meal.tags?.includes(filterTag.id!));
           return matchesSearch && matchesTags;
         }).map((meal) => {
-          const thumbnail = meal.images?.find(img => img.isThumbnail);
-          const recipe = recipes?.find(r => r.mealId === meal.id);
-          let thumbnailUrl: string | null = null;
-          if (thumbnail && thumbnail.type === 'recipeImage' && recipe) {
-            const image = recipe.images[thumbnail.imageIndex];
-            if (typeof image === 'string') {
-              thumbnailUrl = image;
-            } else if (image instanceof File) {
-              thumbnailUrl = URL.createObjectURL(image);
-            }
-          }
+          const thumbnailImage = meal ? mealThumbnail(meal, recipes) : undefined;
 
           return (
             <Accordion key={meal.id} ref={el => mealRefs.current[meal.id!] = el} sx={{ backgroundColor: highlightedMealId === meal.id ? 'yellow' : 'inherit' }}>
               <AccordionSummary expandIcon={<ExpandMore />}>
                 <Box sx={{ width: '100%', display: 'flex', alignItems: 'center' }}>
-                  {thumbnailUrl && (
-                    <img
-                      src={thumbnailUrl}
+                  {thumbnailImage && (
+                    <StoredImage
+                      image={thumbnailImage}
                       alt="thumbnail"
                       width="50"
                       style={{ marginRight: '10px', cursor: 'pointer' }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedImage(thumbnailUrl);
+                        setSelectedImage(thumbnailImage);
                       }}
                     />
                   )}

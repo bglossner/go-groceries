@@ -16,6 +16,7 @@ import { useToast } from './hooks/useToast';
 import { checkAndTriggerAutoSyncTo } from './util/sync-to';
 import { useDebouncedSync } from './hooks/useDebouncedSync';
 import { useServiceWorkerUpdate } from './hooks/useSWUpdate';
+import { runImageMigration } from './db/image-cache';
 
 // Create a new router instance
 const router = createRouter({ routeTree });
@@ -37,6 +38,21 @@ const AppWrapper = () => {
   const { showSuccessToast, showErrorToast } = useToast();
 
   useServiceWorkerUpdate();
+  useEffect(() => {
+    const controller = new AbortController();
+    const migrate = async () => {
+      try {
+        const result = await runImageMigration(undefined, { signal: controller.signal });
+        if (result.interrupted && !controller.signal.aborted) { void migrate(); return; }
+        if (result.blocked && !controller.signal.aborted) showErrorToast('Some original images need recovery. Their stored data has been retained.');
+      } catch {
+        if (!controller.signal.aborted) showErrorToast('Image conversion will retry. Original images have been retained.');
+      }
+    };
+    void migrate();
+    const timer = window.setInterval(() => { void migrate(); }, 60000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [showErrorToast]);
 
   const { data, isLoading } = useQuery({
     queryKey: ['checkSyncFromData'],
