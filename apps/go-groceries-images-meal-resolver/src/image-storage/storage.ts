@@ -4,6 +4,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { ImageAsset } from '@go-groceries/frontend/image-assets';
 import { AppContext, ErrorWrapper } from '../types';
 import { getS3Client } from '../file-upload/s3-client';
+import { logStorageError } from '../file-upload/storage-error';
 
 export type StorageDependencies = {
   client: (c: AppContext) => S3Client;
@@ -46,7 +47,11 @@ export class ObjectStorage {
   constructor(private c: AppContext, private deps: StorageDependencies) { this.client = deps.client(c); }
   async head(key: string) {
     try { return await this.client.send(new HeadObjectCommand({ Bucket: this.c.env.R2_BUCKET_NAME, Key: key })); }
-    catch (error) { if (hasStatus(error, 404)) return null; throw error; }
+    catch (error) {
+      logStorageError(this.c, 'HeadObject', error);
+      if (hasStatus(error, 404)) return null;
+      throw error;
+    }
   }
   async get(key: string, limit: number) {
     return (await this.getWithRevision(key, limit))?.bytes ?? null;
@@ -61,18 +66,27 @@ export class ObjectStorage {
         throw new ErrorWrapper({ message: 'Object exceeds size limit', statusCode: 413 });
       }
       return { bytes: await readBounded(stream, limit), revision: result.ETag };
-    } catch (error) { if (hasStatus(error, 404)) return null; throw error; }
+    } catch (error) {
+      if (!(error instanceof ErrorWrapper)) logStorageError(this.c, 'GetObject', error);
+      if (hasStatus(error, 404)) return null;
+      throw error;
+    }
   }
   async put(key: string, bytes: Uint8Array, options: Partial<PutObjectCommandInput>) {
-    return this.client.send(new PutObjectCommand({
-      Bucket: this.c.env.R2_BUCKET_NAME, Key: key, Body: bytes,
-      CacheControl: 'private, no-store', ...options,
-    }));
+    try {
+      return await this.client.send(new PutObjectCommand({
+        Bucket: this.c.env.R2_BUCKET_NAME, Key: key, Body: bytes,
+        CacheControl: 'private, no-store', ...options,
+      }));
+    } catch (error) {
+      logStorageError(this.c, 'PutObject', error);
+      throw error;
+    }
   }
   async removeStaging(key: string) {
     // Cleanup is best effort: a confirmed immutable object makes completion retryable.
     try { await this.client.send(new DeleteObjectCommand({ Bucket: this.c.env.R2_BUCKET_NAME, Key: key })); }
-    catch { /* Abandoned staging retention is an operational follow-up, never final-image GC. */ }
+    catch (error) { logStorageError(this.c, 'DeleteObject', error); }
   }
   async verifiedAsset(asset: ImageAsset): Promise<boolean> {
     const head = await this.head(asset.location.key);
@@ -87,10 +101,15 @@ export class ObjectStorage {
     const command = method === 'GET' ? new GetObjectCommand(input) : new PutObjectCommand({ ...input, ContentType: mimeType });
     const started = this.deps.now();
     // Disable metadata hoisting and sign the requested PUT Content-Type explicitly.
-    const url = await this.deps.sign(this.client, command, {
-      expiresIn: seconds, signingDate: new Date(started),
-      ...(method === 'PUT' ? { signableHeaders: new Set(['content-type']) } : {}),
-    });
-    return { key, url, expiresAt: new Date(started + seconds * 1000).toISOString() };
+    try {
+      const url = await this.deps.sign(this.client, command, {
+        expiresIn: seconds, signingDate: new Date(started),
+        ...(method === 'PUT' ? { signableHeaders: new Set(['content-type']) } : {}),
+      });
+      return { key, url, expiresAt: new Date(started + seconds * 1000).toISOString() };
+    } catch (error) {
+      logStorageError(this.c, method === 'GET' ? 'PresignGetObject' : 'PresignPutObject', error);
+      throw error;
+    }
   }
 }

@@ -4,6 +4,7 @@ import { FileRetrievalRequest, FileRetrievalResponse, R2_FILE_UPLOAD_TYPE } from
 import { generatePresignedGetUrl } from "../file-upload/r2-presign-get";
 import { ErrorWrapper } from "../types";
 import { ErrorResponse } from "@go-groceries/frontend";
+import { logStorageError } from "../file-upload/storage-error";
 
 export function fileRetrievalEndpoint(app: AppType) {
   app.post("/file-retrieval", async (c) => {
@@ -41,7 +42,7 @@ export function fileRetrievalEndpoint(app: AppType) {
       if (error instanceof ErrorWrapper) {
         return c.json({ error: error.message } satisfies ErrorResponse, error.statusCode);
       } else {
-        console.error('Unexpected error', error);
+        logStorageError(c, 'FileRetrieval', error);
         return c.json({ error: 'An unexpected error occurred.' } satisfies ErrorResponse, 500);
       }
     }

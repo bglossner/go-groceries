@@ -42,7 +42,13 @@ async function legacyFile(sync: Sync): Promise<Blob> {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pass, fileName: sync.filename, uploadedType: 'R2' }),
       cache: 'no-store', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(30000),
     }); } catch { throw new Error('Legacy sync unavailable'); }
-    if (!response.ok) throw new Error('Legacy retrieval authorization failed. Reopen the old shared link or set the writer pass.');
+    if (!response.ok) {
+      if (response.status === 403) throw new Error('Legacy retrieval pass rejected. Reopen the old shared link or set the writer pass.');
+      if (response.status === 400) throw new Error('Invalid legacy sync filename. Check the old shared link.');
+      if (response.status === 404) throw new Error('Legacy sync file not found in storage. Check the old shared link.');
+      if (response.status >= 500) throw new Error('Legacy sync storage lookup failed. Retry later or ask the service owner to check storage access.');
+      throw new Error(`Legacy retrieval failed (${response.status}). Retry sync.`);
+    }
     const result = await boundedJson(response) as { url: string };
     if (typeof result.url !== 'string') throw new Error('Invalid legacy retrieval response');
     rememberLegacyTransfer(sync.url!, result.url); return result.url;
