@@ -55,6 +55,7 @@ const AppWrapper = () => {
       try {
         const result = await runImageMigration(undefined, { signal: controller.signal });
         if (result.interrupted && !controller.signal.aborted) { void migrate(); return; }
+        if (result.converted && !controller.signal.aborted) await queryClient.invalidateQueries();
         if (result.blocked && !controller.signal.aborted) showErrorToast('Some original images need recovery. Their stored data has been retained.');
       } catch {
         if (!controller.signal.aborted) showErrorToast('Image conversion will retry. Original images have been retained.');

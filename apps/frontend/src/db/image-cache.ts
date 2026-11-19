@@ -1,5 +1,6 @@
 import Dexie from 'dexie';
 import { db, type MySubClassedDexie, type RecipeImage, type PendingImage, type MealImage, type LocalImageAsset } from './db';
+import { resolveMealRecipeImage } from './meal-images';
 import type { ImageRef } from '../shareable/image-assets';
 
 export type AssetRef = Extract<ImageRef, { kind: 'asset' }>;
@@ -88,6 +89,18 @@ const fingerprint = async (value: unknown): Promise<string> => {
   return JSON.stringify(value);
 };
 
+// Store fixed categories only: error messages can contain private URLs or filenames.
+const conversionFailureCode = (error: unknown): string => {
+  if (!(error instanceof Error)) return 'unknown';
+  if (error.name === 'QuotaExceededError') return 'storage_quota_exceeded';
+  if (error.name === 'InvalidCharacterError') return 'invalid_base64';
+  if (error.message === 'Invalid inline image') return 'invalid_inline_image';
+  if (error.message === 'Unrecoverable temporary image URL') return 'temporary_image_url';
+  if (error.message === 'Invalid cached image bytes') return 'invalid_cached_asset';
+  if (error.name === 'TypeError') return 'invalid_image_data';
+  return 'unknown';
+};
+
 const activeMigrations = new WeakMap<MySubClassedDexie, Promise<MigrationResult>>();
 export type MigrationResult = { rows: number; converted: number; blocked: number; interrupted: boolean };
 export const runImageMigration = (database = db, options: { maxRows?: number; signal?: AbortSignal } = {}): Promise<MigrationResult> => {
@@ -99,7 +112,27 @@ export const runImageMigration = (database = db, options: { maxRows?: number; si
 };
 async function migrate(database: MySubClassedDexie, options: { maxRows?: number; signal?: AbortSignal }): Promise<MigrationResult> {
   const result: MigrationResult = { rows: 0, converted: 0, blocked: 0, interrupted: false };
-  const scan = await database.imageMigrationJobs.get('scan');
+  const savedScan = await database.imageMigrationJobs.get('scan');
+  let scan = savedScan;
+  // Retire obsolete legacy diagnostics under the same store locks used by meal edits.
+  // Restart only for live blocked rows already passed, so bounded scans keep progressing.
+  const revisit = await database.transaction('rw', database.meals, database.imageMigrationJobs, async () => {
+    const legacyJobs = await database.imageMigrationJobs.filter(job => job.id.startsWith('meals:') &&
+      job.issues.some(issue => /^slot \d+: ambiguous recipe image reference$/.test(issue))).toArray();
+    let passedLiveRow = false;
+    for (const job of legacyJobs) {
+      const mealId = Number(job.id.slice(6));
+      const meal = await database.meals.get(mealId);
+      if (!meal || meal.images === undefined) await database.imageMigrationJobs.delete(job.id);
+      else if (!Array.isArray(meal.images)) await database.imageMigrationJobs.put({
+        ...job, issues: ['invalid_image_list'], updatedAt: new Date().toISOString(),
+      });
+      else if (savedScan && ((savedScan.tableIndex ?? 0) > 0 ||
+          (typeof savedScan.cursor === 'number' && mealId <= savedScan.cursor))) passedLiveRow = true;
+    }
+    return passedLiveRow;
+  });
+  if (revisit) scan = undefined;
   const checkpoint = async (tableIndex: number, cursor?: number | string) => database.imageMigrationJobs.put({
     id: 'scan', tableIndex, cursor, issues: [], updatedAt: new Date().toISOString(),
   });
@@ -118,38 +151,55 @@ async function migrate(database: MySubClassedDexie, options: { maxRows?: number;
           result.interrupted = true; return result;
         }
         result.rows++;
-        if (!Array.isArray(row.images)) { await checkpoint(tableIndex, row.id); continue; }
+        if (!Array.isArray(row.images)) {
+          await database.transaction('rw', table, database.imageMigrationJobs, async () => {
+            const current = await table.get(row.id);
+            const id = `${tableName}:${row.id}`;
+            if (!current || current.images === undefined) await database.imageMigrationJobs.delete(id);
+            else {
+              result.blocked++;
+              await database.imageMigrationJobs.put({ id, issues: [Array.isArray(current.images) ? 'row_changed_retry' : 'invalid_image_list'],
+                updatedAt: new Date().toISOString() });
+            }
+            await checkpoint(tableIndex, row.id);
+          });
+          continue;
+        }
         const before = await fingerprint(row.images);
         const issues: string[] = [];
         const images: (RecipeImage | MealImage | PendingImage)[] = [];
         const newAssetIds = new Set<string>();
         for (const [index, image] of row.images.entries()) {
           try {
-            if (tableName === 'meals' && image.type === 'recipeImage') {
-              const owned = await database.recipes.where('mealId').equals(row.id).toArray();
-              const declared = await database.recipes.get(image.recipeId);
-              if (!declared || declared.mealId !== row.id || owned[0]?.id !== declared.id ||
-                  !Number.isInteger(image.imageIndex) || image.imageIndex < 0 || image.imageIndex >= declared.images.length) {
-                issues.push(`slot ${index}: ambiguous recipe image reference`);
-              }
-              images.push(image);
-            } else if (tableName === 'meals') images.push(await normalizeMealImage(image, database));
+            // Resolve recipe references only after re-reading ownership in the write transaction.
+            if (tableName === 'meals') images.push(await normalizeMealImage(image, database));
             else if (tableName === 'pendingRecipes') images.push((await normalizePendingImages([image], database))[0]);
             else images.push(await normalizeRecipeImage(image, database));
             const normalized = images[images.length - 1];
             if (!isAssetRef(image) && isAssetRef(normalized)) newAssetIds.add(normalized.assetId);
-          } catch {
-            images.push(image); issues.push(`slot ${index}: original retained; conversion failed`);
+          } catch (error) {
+            images.push(image); issues.push(`slot ${index}: conversion_failed:${conversionFailureCode(error)}`);
           }
         }
-        const changed = before !== await fingerprint(images);
-        await database.transaction('rw', table, database.imageAssets, database.imageMigrationJobs, async () => {
+        await database.transaction('rw', table, database.recipes, database.imageAssets, database.imageMigrationJobs, async () => {
           const current = await table.get(row.id);
-          if (!current) { await checkpoint(tableIndex, row.id); return; }
+          if (!current) { await database.imageMigrationJobs.delete(`${tableName}:${row.id}`); await checkpoint(tableIndex, row.id); return; }
           if (await Dexie.waitFor(fingerprint(current.images)) !== before) {
-            await database.imageMigrationJobs.put({ id: `${tableName}:${row.id}`, issues: ['row changed; retry'], updatedAt: new Date().toISOString() });
+            await database.imageMigrationJobs.put({ id: `${tableName}:${row.id}`, issues: ['row_changed_retry'], updatedAt: new Date().toISOString() });
             await checkpoint(tableIndex, row.id); return;
           }
+          if (tableName === 'meals') {
+            const owned = await database.recipes.where('mealId').equals(row.id).toArray();
+            for (const [index, image] of images.entries()) {
+              if (!image || typeof image !== 'object' || image instanceof Blob || !('type' in image) || image.type !== 'recipeImage') continue;
+              const resolved = resolveMealRecipeImage(row.id, image, owned);
+              if (resolved.issue) issues.push(`slot ${index}: ${resolved.issue}`);
+              else if (image.recipeId === row.id && image.recipeId !== resolved.recipe.id) {
+                images[index] = { ...image, recipeId: resolved.recipe.id! };
+              }
+            }
+          }
+          const changed = before !== await Dexie.waitFor(fingerprint(images));
           // Verify the cache in the same transaction as replacing the source slot.
           for (const image of images) {
             if (isAssetRef(image) && newAssetIds.has(image.assetId)) {
