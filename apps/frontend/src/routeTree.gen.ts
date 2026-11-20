@@ -12,6 +12,8 @@ import { createFileRoute } from '@tanstack/react-router'
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as RestaurantsRouteImport } from './routes/restaurants'
+import { Route as RestaurantRestaurantIdRouteImport } from './routes/restaurant.$restaurantId'
 import { Route as RecipeMealIdRouteImport } from './routes/recipe.$mealId'
 
 const MealsLazyRouteImport = createFileRoute('/meals')()
@@ -45,11 +47,21 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RestaurantsRoute = RestaurantsRouteImport.update({
+  id: '/restaurants',
+  path: '/restaurants',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexLazyRoute = IndexLazyRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/index.lazy').then((d) => d.Route))
+const RestaurantRestaurantIdRoute = RestaurantRestaurantIdRouteImport.update({
+  id: '/restaurant/$restaurantId',
+  path: '/restaurant/$restaurantId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RecipeMealIdRoute = RecipeMealIdRouteImport.update({
   id: '/recipe/$mealId',
   path: '/recipe/$mealId',
@@ -58,70 +70,84 @@ const RecipeMealIdRoute = RecipeMealIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexLazyRoute
+  '/restaurants': typeof RestaurantsRoute
   '/settings': typeof SettingsRoute
   '/go-grocery': typeof GoGroceryLazyRoute
   '/grocery-list': typeof GroceryListLazyRoute
   '/manage-stores': typeof ManageStoresLazyRoute
   '/meals': typeof MealsLazyRoute
   '/recipe/$mealId': typeof RecipeMealIdRoute
+  '/restaurant/$restaurantId': typeof RestaurantRestaurantIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexLazyRoute
+  '/restaurants': typeof RestaurantsRoute
   '/settings': typeof SettingsRoute
   '/go-grocery': typeof GoGroceryLazyRoute
   '/grocery-list': typeof GroceryListLazyRoute
   '/manage-stores': typeof ManageStoresLazyRoute
   '/meals': typeof MealsLazyRoute
   '/recipe/$mealId': typeof RecipeMealIdRoute
+  '/restaurant/$restaurantId': typeof RestaurantRestaurantIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexLazyRoute
+  '/restaurants': typeof RestaurantsRoute
   '/settings': typeof SettingsRoute
   '/go-grocery': typeof GoGroceryLazyRoute
   '/grocery-list': typeof GroceryListLazyRoute
   '/manage-stores': typeof ManageStoresLazyRoute
   '/meals': typeof MealsLazyRoute
   '/recipe/$mealId': typeof RecipeMealIdRoute
+  '/restaurant/$restaurantId': typeof RestaurantRestaurantIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/restaurants'
     | '/settings'
     | '/go-grocery'
     | '/grocery-list'
     | '/manage-stores'
     | '/meals'
     | '/recipe/$mealId'
+    | '/restaurant/$restaurantId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/restaurants'
     | '/settings'
     | '/go-grocery'
     | '/grocery-list'
     | '/manage-stores'
     | '/meals'
     | '/recipe/$mealId'
+    | '/restaurant/$restaurantId'
   id:
     | '__root__'
     | '/'
+    | '/restaurants'
     | '/settings'
     | '/go-grocery'
     | '/grocery-list'
     | '/manage-stores'
     | '/meals'
     | '/recipe/$mealId'
+    | '/restaurant/$restaurantId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexLazyRoute: typeof IndexLazyRoute
+  RestaurantsRoute: typeof RestaurantsRoute
   SettingsRoute: typeof SettingsRoute
   GoGroceryLazyRoute: typeof GoGroceryLazyRoute
   GroceryListLazyRoute: typeof GroceryListLazyRoute
   ManageStoresLazyRoute: typeof ManageStoresLazyRoute
   MealsLazyRoute: typeof MealsLazyRoute
   RecipeMealIdRoute: typeof RecipeMealIdRoute
+  RestaurantRestaurantIdRoute: typeof RestaurantRestaurantIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -161,11 +187,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/restaurants': {
+      id: '/restaurants'
+      path: '/restaurants'
+      fullPath: '/restaurants'
+      preLoaderRoute: typeof RestaurantsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexLazyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/restaurant/$restaurantId': {
+      id: '/restaurant/$restaurantId'
+      path: '/restaurant/$restaurantId'
+      fullPath: '/restaurant/$restaurantId'
+      preLoaderRoute: typeof RestaurantRestaurantIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/recipe/$mealId': {
@@ -180,12 +220,14 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexLazyRoute: IndexLazyRoute,
+  RestaurantsRoute: RestaurantsRoute,
   SettingsRoute: SettingsRoute,
   GoGroceryLazyRoute: GoGroceryLazyRoute,
   GroceryListLazyRoute: GroceryListLazyRoute,
   ManageStoresLazyRoute: ManageStoresLazyRoute,
   MealsLazyRoute: MealsLazyRoute,
   RecipeMealIdRoute: RecipeMealIdRoute,
+  RestaurantRestaurantIdRoute: RestaurantRestaurantIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
