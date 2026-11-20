@@ -17,6 +17,14 @@
     },
     ".": {
       "types": "./src/shareable/response.ts"
+    },
+    "./image-assets": {
+      "types": "./src/shareable/image-assets.ts",
+      "import": "./build/shareable/image-assets.js"
+    },
+    "./snapshot": {
+      "types": "./src/shareable/snapshot.ts",
+      "import": "./build/shareable/snapshot.js"
     }
   },
   "scripts": {

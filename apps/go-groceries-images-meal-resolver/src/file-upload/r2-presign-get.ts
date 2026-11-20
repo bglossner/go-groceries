@@ -5,6 +5,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { AppContext, ErrorWrapper } from "../types";
 import { getS3Client } from "./s3-client";
+import { logStorageError } from "./storage-error";
 
 export const generatePresignedGetUrl = async (c: AppContext, filename: string) => {
   if (!filename) {
@@ -19,8 +20,11 @@ export const generatePresignedGetUrl = async (c: AppContext, filename: string) =
       Key: filename,
     }));
   } catch (error) {
-    // Assuming the error means the object doesn't exist
-    throw new ErrorWrapper({ message: "File not found", statusCode: 404 });
+    logStorageError(c, 'HeadObject', error);
+    if ((error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404) {
+      throw new ErrorWrapper({ message: 'File not found', statusCode: 404 });
+    }
+    throw new ErrorWrapper({ message: 'Storage lookup failed', statusCode: 502 });
   }
 
   const command = new GetObjectCommand({
@@ -28,9 +32,10 @@ export const generatePresignedGetUrl = async (c: AppContext, filename: string) =
     Key: filename,
   });
 
-  const signedUrl = await getSignedUrl(s3, command, {
-    expiresIn: 60 * 60 * 24,
-  });
-
-  return signedUrl;
+  try {
+    return await getSignedUrl(s3, command, { expiresIn: 60 * 60 * 24 });
+  } catch (error) {
+    logStorageError(c, 'PresignGetObject', error);
+    throw new ErrorWrapper({ message: 'Storage lookup failed', statusCode: 502 });
+  }
 };

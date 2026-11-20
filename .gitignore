@@ -26,3 +26,6 @@ dist-ssr
 dev-dist
 .turbo
 .env
+
+# Generated frontend modules used by the local Worker
+/apps/frontend/build/

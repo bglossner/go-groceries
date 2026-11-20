@@ -3,6 +3,8 @@ import { type MealRecipeImage } from '../shareable/meals';
 import type { Ingredient } from '../types/ingredients';
 import { useMutationQueueStore } from '../store/mutationQueueStore';
 import { addDateConverterHooks } from './date-converter';
+import type { ImageRef } from '../shareable/image-assets';
+import type { Snapshot } from '../shareable/snapshot';
 
 export type MealImage = { isThumbnail?: boolean; } & ({
   type: 'url';
@@ -10,7 +12,7 @@ export type MealImage = { isThumbnail?: boolean; } & ({
 } | {
   type: 'file';
   file: File;
-} | {
+} | ({ type: 'asset' } & Extract<ImageRef, { kind: 'asset' }>) | {
   type: 'recipeImage';
   recipeId: number;
   imageIndex: number;
@@ -42,10 +44,40 @@ export interface GroceryListState {
   checkedIngredients: string[];
 }
 
+// Legacy alternatives stay readable while resumable conversion is incomplete.
+export type RecipeImage = Blob | string | Extract<ImageRef, { kind: 'asset' }>;
+export type PendingImage = MealRecipeImage | Extract<ImageRef, { kind: 'asset' }>;
+
+export interface LocalImageAsset {
+  assetId: string;
+  sha256: string;
+  blob: Blob;
+  mimeType: string;
+  byteLength: number;
+  cachedAt: string;
+  verifiedAt: string;
+}
+
+export interface ImageMigrationJob {
+  id: string;
+  tableIndex?: number;
+  cursor?: number | string;
+  issues: string[];
+  updatedAt: string;
+}
+
+// An inventory for stage 3, independent of the in-memory mutation hooks.
+// Remote completion must be tracked per collection, not by deleting this inventory.
+export interface ImageUploadJob {
+  assetId: string;
+  createdAt: string;
+  collections?: Record<string, { verifiedAt: string }>;
+}
+
 export interface Recipe {
   id?: number;
   mealId: number;
-  images: (File | string)[];
+  images: RecipeImage[];
   url: string;
   notes: string;
 }
@@ -55,7 +87,7 @@ export interface PendingRecipe {
   content?: string; // The recipe text from the API
   sourceUrl: string;
   createdAt: Date;
-  images?: MealRecipeImage[];
+  images?: PendingImage[];
 }
 
 export interface Tag {
@@ -94,6 +126,16 @@ export interface IngredientStore {
 }
 
 export interface Sync {
+  format?: 'v2';
+  collectionId?: string;
+  snapshotId?: string;
+  revision?: string;
+  access?: 'writer' | 'share';
+  pendingPublication?: { snapshot: Snapshot; expectedRevision: string | null };
+  importGeneration?: string;
+  lastMetadataDigest?: string;
+  cachedImages?: number;
+  totalImages?: number;
   id?: number;
   type: 'to' | 'from';
   filename: string;
@@ -118,6 +160,9 @@ export class MySubClassedDexie extends Dexie {
   stores!: Table<Store>;
   ingredientStores!: Table<IngredientStore>;
   syncs!: Table<Sync>;
+  imageAssets!: Table<LocalImageAsset, string>;
+  imageMigrationJobs!: Table<ImageMigrationJob, string>;
+  imageUploadJobs!: Table<ImageUploadJob, string>;
 
   constructor(isTempVersion: boolean = false) {
     super('groceriesHelper' + (isTempVersion ? crypto.randomUUID() : ''));
@@ -170,6 +215,14 @@ export class MySubClassedDexie extends Dexie {
         })
       ]);
     });
+    // Schema upgrade only adds stores. Binary work runs after open in bounded batches.
+    this.version(15).stores({
+      imageAssets: '&assetId',
+      imageMigrationJobs: '&id',
+      imageUploadJobs: '&assetId',
+    }).upgrade(tx => tx.table('imageMigrationJobs').put({
+      id: 'scan', issues: [], updatedAt: new Date().toISOString(),
+    }));
   }
 }
 
@@ -195,9 +248,10 @@ export const INCLUDE_TABLES =  [
   db.pendingRecipes.name,
   db.stores.name,
   db.ingredientStores.name,
+  db.imageAssets.name,
 ] as const;
 
-const ADDITIONAL_EXCLUDE_TABLES = [db.groceryListStates.name];
+const ADDITIONAL_EXCLUDE_TABLES = [db.groceryListStates.name, db.imageAssets.name];
 const attachGlobalMutationHooks = (db: Dexie) => {
   const methodsToHook = ['put', 'add', 'delete', 'update'] as const satisfies (keyof Table)[];
 

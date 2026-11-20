@@ -1,5 +1,7 @@
 # Go Groceries
 
+[Architecture and development documentation](docs/README.md)
+
 GitHub: https://github.com/bglossner/go-groceries
 
 # Test Workflow

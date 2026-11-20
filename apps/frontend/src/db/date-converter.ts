@@ -8,6 +8,7 @@ const toIsoString = (date: number | string | Date | null | undefined): Date => {
 export const addDateConverterHooks = (db: MySubClassedDexie) => {
   // Reading hooks (convert from ISO string to Date)
   db.meals.hook('reading', (meal) => {
+    if (!meal) return meal;
     if (meal.createdAt && !(meal.createdAt instanceof Date)) {
       meal.createdAt = new Date(meal.createdAt);
     }
@@ -18,6 +19,7 @@ export const addDateConverterHooks = (db: MySubClassedDexie) => {
   });
 
   db.groceryLists.hook('reading', (list) => {
+    if (!list) return list;
     if (list.createdAt && !(list.createdAt instanceof Date)) {
       list.createdAt = new Date(list.createdAt);
     }
@@ -25,6 +27,7 @@ export const addDateConverterHooks = (db: MySubClassedDexie) => {
   });
 
   db.pendingRecipes.hook('reading', (recipe) => {
+    if (!recipe) return recipe;
     if (recipe.createdAt && !(recipe.createdAt instanceof Date)) {
       recipe.createdAt = new Date(recipe.createdAt);
     }
@@ -32,6 +35,7 @@ export const addDateConverterHooks = (db: MySubClassedDexie) => {
   });
 
   db.syncs.hook('reading', (sync) => {
+    if (!sync) return sync;
     if (sync.createdAt && !(sync.createdAt instanceof Date)) {
       sync.createdAt = new Date(sync.createdAt);
     }

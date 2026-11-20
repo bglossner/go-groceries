@@ -16,11 +16,15 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         registerType: 'autoUpdate',
         workbox: {
+          importScripts: ['sync-cache-cleanup.js'],
           globPatterns: ['**/*.{js,css,html,ico,png,svg,json,webmanifest}'],
           runtimeCaching: [
             {
-              urlPattern: /\/.*/,
+              urlPattern: ({ url, request }) => url.origin === self.location.origin &&
+                request.method === 'GET' && !request.headers.has('authorization') && !url.search &&
+                /\.(png|jpg|jpeg|webp|svg|ico|woff2?)$/i.test(url.pathname),
               handler: 'CacheFirst',
+              options: { cacheName: 'go-groceries-static-v2' },
             }
           ],
           cleanupOutdatedCaches: true,

@@ -3,12 +3,12 @@ import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type Sync } from '../db/db';
 import { checkAndTriggerAutoSync } from '../util/sync-from';
-import { handleFileImport } from '../util/db/import';
+import { importSyncFile } from '../util/sync-from';
 import { useDiffsModal } from './useDiffsModal';
 
 export const useSync = () => {
   const queryClient = useQueryClient();
-  const { openDiffsModal } = useDiffsModal();
+  const { openDiffsModal, showSuccessToast } = useDiffsModal();
 
   const { data: existingSyncFrom } = useQuery<Sync | null>({
     queryKey: ['syncFrom'],
@@ -24,10 +24,10 @@ export const useSync = () => {
           return;
         }
         const { blob, diffsResult } = syncResult;
-        if (diffsResult.mealDiffs.toAdd.length > 0 || diffsResult.mealDiffs.toRemove.length > 0) {
+        if (syncResult.needsConfirmation || diffsResult.mealDiffs.toAdd.length > 0 || diffsResult.mealDiffs.toRemove.length > 0) {
           openDiffsModal(diffsResult, blob, () => undefined);
         } else {
-          await handleFileImport(blob);
+          showSuccessToast(await importSyncFile(blob, { automatic: true }));
           if (existingSyncFrom && existingSyncFrom.id) {
             await db.syncs.update(existingSyncFrom.id, { lastSyncedAt: new Date() });
           }

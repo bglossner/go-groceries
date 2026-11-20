@@ -10,6 +10,9 @@ import { Link } from '@tanstack/react-router';
 import IngredientForm from '../components/IngredientForm';
 import { ingredientSchema } from '../types/ingredients';
 import EnlargedImage from '../components/EnlargedImage';
+import StoredImage from '../components/StoredImage';
+import { mealThumbnail } from '../db/meal-images';
+import type { RecipeImage } from '../db/db';
 import { useSetLastEditedGroceryListId } from '../hooks/useSetLastEditedGroceryListId';
 
 const groceryListFormSchema = z.object({
@@ -154,7 +157,7 @@ const GroceryListPage: React.FC = () => {
   const [itemToDelete, setItemToDelete] = useState<{ id: number; name: string } | null>(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [mealSearchTerm, setMealSearchTerm] = useState('');
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<RecipeImage | null>(null);
 
   const { data: groceryLists } = useQuery({
     queryKey: ['groceryLists'],
@@ -404,28 +407,18 @@ const GroceryListPage: React.FC = () => {
                 <List>
                   {list.meals.map(mealId => {
                     const meal = meals?.find(m => m.id === mealId);
-                    const thumbnail = meal?.images?.find(img => img.isThumbnail);
-                    const recipe = recipes?.find(r => r.mealId === meal?.id);
-                    let thumbnailUrl: string | null = null;
-                    if (thumbnail && thumbnail.type === 'recipeImage' && recipe) {
-                      const image = recipe.images[thumbnail.imageIndex];
-                      if (typeof image === 'string') {
-                        thumbnailUrl = image;
-                      } else if (image instanceof File) {
-                        thumbnailUrl = URL.createObjectURL(image);
-                      }
-                    }
+                    const thumbnailImage = meal ? mealThumbnail(meal, recipes) : undefined;
                     return meal ? (
                       <ListItem key={mealId}>
-                        {thumbnailUrl && (
-                          <img
-                            src={thumbnailUrl}
+                        {thumbnailImage && (
+                          <StoredImage
+                            image={thumbnailImage}
                             alt="thumbnail"
                             width="50"
                             style={{ marginRight: '10px', cursor: 'pointer' }}
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSelectedImage(thumbnailUrl);
+                              setSelectedImage(thumbnailImage);
                             }}
                           />
                         )}
@@ -489,17 +482,7 @@ const GroceryListPage: React.FC = () => {
                 render={({ field }) => (
                   <List>
                     {meals?.filter(meal => meal.name.toLowerCase().includes(mealSearchTerm.toLowerCase())).map(meal => {
-                      const thumbnail = meal.images?.find(img => img.isThumbnail);
-                      const recipe = recipes?.find(r => r.mealId === meal.id);
-                      let thumbnailUrl: string | null = null;
-                      if (thumbnail && thumbnail.type === 'recipeImage' && recipe) {
-                        const image = recipe.images[thumbnail.imageIndex];
-                        if (typeof image === 'string') {
-                          thumbnailUrl = image;
-                        } else if (image instanceof File) {
-                          thumbnailUrl = URL.createObjectURL(image);
-                        }
-                      }
+                      const thumbnailImage = meal ? mealThumbnail(meal, recipes) : undefined;
 
                       return (
                         <ListItem key={meal.id} dense component="div" onClick={() => {
@@ -515,15 +498,15 @@ const GroceryListPage: React.FC = () => {
                             tabIndex={-1}
                             disableRipple
                           />
-                          {thumbnailUrl && (
-                            <img
-                              src={thumbnailUrl}
+                          {thumbnailImage && (
+                            <StoredImage
+                              image={thumbnailImage}
                               alt="thumbnail"
                               width="50"
                               style={{ marginRight: '10px', cursor: 'pointer' }}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setSelectedImage(thumbnailUrl);
+                                setSelectedImage(thumbnailImage);
                               }}
                             />
                           )}

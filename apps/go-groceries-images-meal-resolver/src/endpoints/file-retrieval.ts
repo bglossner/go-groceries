@@ -1,8 +1,10 @@
+import { isLegacyKey } from '../file-upload/legacy-key';
 import { AppType } from "..";
 import { FileRetrievalRequest, FileRetrievalResponse, R2_FILE_UPLOAD_TYPE } from "../types";
 import { generatePresignedGetUrl } from "../file-upload/r2-presign-get";
 import { ErrorWrapper } from "../types";
 import { ErrorResponse } from "@go-groceries/frontend";
+import { logStorageError } from "../file-upload/storage-error";
 
 export function fileRetrievalEndpoint(app: AppType) {
   app.post("/file-retrieval", async (c) => {
@@ -13,10 +15,17 @@ export function fileRetrievalEndpoint(app: AppType) {
     } catch (err) {
       return c.json({ error: 'Invalid or missing JSON body' }, 400);
     }
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      return c.json({ error: 'Invalid JSON body' }, 400);
+    }
     const { fileName, uploadedType, pass } = body;
 
     if (c.env.ENABLE_PASS !== 'false' && (!pass || pass !== c.env.PASS)) {
       return c.json({ error: 'Invalid pass provided' } satisfies ErrorResponse, 403);
+    }
+
+    if (!isLegacyKey(fileName)) {
+      return c.json({ error: 'Invalid legacy filename or reserved storage key' }, 400);
     }
 
     if (uploadedType !== R2_FILE_UPLOAD_TYPE) {
@@ -33,7 +42,7 @@ export function fileRetrievalEndpoint(app: AppType) {
       if (error instanceof ErrorWrapper) {
         return c.json({ error: error.message } satisfies ErrorResponse, error.statusCode);
       } else {
-        console.error('Unexpected error', error);
+        logStorageError(c, 'FileRetrieval', error);
         return c.json({ error: 'An unexpected error occurred.' } satisfies ErrorResponse, 500);
       }
     }

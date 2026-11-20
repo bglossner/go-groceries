@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { exportBlobToFile, getExportBlob } from '../util/db/export';
 import { handleFileImport } from '../util/db/import';
 import { getLastEditedGroceryListId } from '../util/db/settings';
+import { useToast } from '../hooks/useToast';
 import { db, type GroceryList } from '../db/db';
 
 export const Route = createLazyFileRoute('/')({
@@ -19,6 +20,7 @@ const handleExportNew = async () => {
 
 function Index() {
   const queryClient = useQueryClient();
+  const { showErrorToast } = useToast();
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importStatus, setImportStatus] = useState<'idle' | 'loading' | 'success' | 'failure'>('idle');
   const [importError, setImportError] = useState<string | null>(null);
@@ -35,7 +37,7 @@ function Index() {
   });
 
   const handleExport = async () => {
-    await handleExportNew();
+    try { await handleExportNew(); } catch (error) { showErrorToast(`Backup was not exported: ${(error as Error).message}`); }
   };
 
   const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
