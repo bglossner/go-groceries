@@ -1,0 +1,13 @@
+# Restaurant release and recovery
+
+This is the local implementation handoff for glossner. Nothing has been pushed, deployed or run against service accounts.
+
+1. Before installing the new frontend, pause automatic sync on every household writer. Save a complete v15 portable backup from every device with unsynced edits and verify it is readable. Preserve existing immutable snapshots and image objects; keep GC disabled.
+2. Release the Images Worker first. It must accept old v2 schema15/adapter1 reads and unupgraded collection writes, accept strict schema16/adapter2, and reject old commit/publication attempts after a collection has a schema16 head. Test a previously committed old snapshot with the current valid expectedRevision: publication must reject and keep the head unchanged. Conditional revision checks still apply.
+3. Update every writer frontend and cached PWA shell before resuming automatic publication. Confirm all clients open Dexie v16, read old 15/1 snapshots and preserve existing meals/lists/images. Version16 creates five new stores; it does not rewrite old content. Older frontends cannot open an upgraded local DB and reject schema16 cloud payloads.
+4. On one synthetic or backed-up collection, save a restaurant, dish/photo and named ratings, publish schema16/adapter2, then import/hydrate on a second updated client. Verify display, advanced values, pins, locations, people and byte hashes. Verify an old client cannot overwrite the upgraded collection. Then resume household sync on updated clients.
+5. Full backups and whole-household read links contain names, comments, notes, coordinates, hidden advanced values and reserved menu photos. Keep the disclosure confirmation. Advanced Off controls visibility only. Local settings and credentials remain excluded from content snapshots/backups.
+6. If any client cannot be updated, keep that client on an old collection until it can. A separate collection is a coordination fallback, not a relaxed validator. Do not direct old clients at a schema16 collection.
+7. Recovery preserves the latest full v16 backup and original DB. Never downgrade a DB in place or assume an old frontend can read v16. Restore the verified pre-upgrade v15 backup into an isolated, supported old-client profile/origin for rollback. That backup omits subsequent restaurant work, so retain the v16 backup separately. The new client can read v12/v14/v15 backups; replacing local restaurant content requires visible counts and explicit confirmation. Future or malformed inputs must leave live tables untouched.
+
+Release prerequisites are the final unit/browser/type/build/PWA logs and independent review disposition in code-review.md. This document instructs a coordinated human release; it performs no deployment.

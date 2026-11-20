@@ -16,6 +16,7 @@ await mkdir(join(runtime,'browser-home'),{recursive:true});
 await writeFile(join(artifacts,'runtime.json'),JSON.stringify({runtime}));
 const env = {PATH:process.env.PATH,HOME:join(runtime,'browser-home'),LANG:'C.UTF-8',REGRESSION_ARTIFACT_DIR:artifacts,
   PLAYWRIGHT_CHROMIUM_EXECUTABLE:chromiumExecutable,
+  REGRESSION_PHOTO_PATH:process.env.REGRESSION_PHOTO_PATH,
   VITE_FILE_SYNC_BASE_URL:'http://127.0.0.1:18927',VITE_YOUTUBE_API_PASS:'',VITE_YOUTUBE_API_BASE_URL:'http://127.0.0.1:18927',
   XDG_CACHE_HOME:join(runtime,'cache'),XDG_CONFIG_HOME:join(runtime,'config'),XDG_DATA_HOME:join(runtime,'data'),TMPDIR:runtime,
   npm_config_cache:join(artifacts,'npm-cache'),WRANGLER_SEND_METRICS:'false'};
@@ -29,9 +30,9 @@ async function identity(pid) {
 async function free(port) {
   await new Promise((resolve,reject) => {const server=net.createServer();server.once('error',reject);server.listen(port,'127.0.0.1',()=>server.close(resolve));});
 }
-async function start(script,args,cwd) {
+async function start(script,args,cwd,extraEnv={}) {
   if (stopping) throw new Error('Test run interrupted');
-  const child = spawn(process.execPath,[script,...args],{cwd,env,detached:true,stdio:'inherit'});
+  const child = spawn(process.execPath,[script,...args],{cwd,env:{...env,...extraEnv},detached:true,stdio:'inherit'});
   child.exitCodeRecorded = null;
   child.done = new Promise(resolve => {
     child.once('exit',code => {child.exitCodeRecorded = code ?? 1;resolve(code ?? 1);});
@@ -136,11 +137,24 @@ for (const [signal,code] of [['SIGINT',130],['SIGTERM',143]]) process.on(signal,
 try {
   await free(18926);await free(18927);
   const worker = await start(join(root,'test/worker-stub.mjs'),[],root);await ready('http://127.0.0.1:18927/__state',worker);
-  const vite = await start(join(dirname(require.resolve('vite/package.json',{paths:[join(root,'apps/frontend')]})),'bin/vite.js'),['--host','127.0.0.1','--port','18926','--strictPort','--mode','regression'],join(root,'apps/frontend'));
+  const vite = await start(join(dirname(require.resolve('vite/package.json',{paths:[join(root,'apps/frontend')]})),'bin/vite.js'),['--port','18926','--strictPort','--mode','regression'],join(root,'apps/frontend'));
   await ready('http://127.0.0.1:18926',vite);
-  const tests = await start(require.resolve('@playwright/test/cli'),['test','--config',join(root,'test/playwright.config.mjs')],root);
+  const tests = await start(require.resolve('@playwright/test/cli'),['test','--config',join(root,'test/playwright.config.mjs'),...(process.env.REGRESSION_GREP?['--grep',process.env.REGRESSION_GREP]:[])],root);
   const result = await tests.done;
+  console.log('E2E UI exit_code='+result);
   process.exitCode = signalExitCode ?? result;
+  if (result===0&&!stopping) {
+    await stop(groups.find(record=>record.child===vite));
+    await free(18926);
+    const build=await start(join(dirname(require.resolve('vite/package.json',{paths:[join(root,'apps/frontend')]})),'bin/vite.js'),['build','--mode','pwa-test'],join(root,'apps/frontend'));
+    const built=await build.done;console.log('E2E PWA build exit_code='+built);
+    if(built!==0) process.exitCode=built;
+    else {
+      const server=await start(join(root,'test/pwa-server.mjs'),[],root);await ready('http://127.0.0.1:18926',server);
+      const offline=await start(require.resolve('@playwright/test/cli'),['test','--config',join(root,'test/playwright.config.mjs'),'--grep','installed PWA offline'],root,{GG_PWA_PHASE:'true'});
+      const code=await offline.done;console.log('E2E PWA tests exit_code='+code);process.exitCode=signalExitCode??code;
+    }
+  }
 } catch (error) {console.error(error);process.exitCode=signalExitCode ?? 1;}
 finally {
   try {await shutdown();} catch (error) {console.error(error);process.exitCode=1;}
