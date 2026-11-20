@@ -13,3 +13,5 @@ export const getLastEditedGroceryListId = async (): Promise<number | undefined> 
   }
   return undefined;
 };
+
+export const SHOW_ADVANCED_RESTAURANT_FIELDS_KEY = 'showAdvancedRestaurantFields';

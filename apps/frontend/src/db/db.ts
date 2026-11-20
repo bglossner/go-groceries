@@ -1,3 +1,4 @@
+import type { Restaurant, RestaurantTag, RestaurantItem, Person, RestaurantItemRating } from '../shareable/restaurants';
 import Dexie, { type Table } from 'dexie';
 import { type MealRecipeImage } from '../shareable/meals';
 import type { Ingredient } from '../types/ingredients';
@@ -149,6 +150,11 @@ export interface Sync {
 }
 
 export class MySubClassedDexie extends Dexie {
+  restaurants!: Table<Restaurant, number>;
+  restaurantTags!: Table<RestaurantTag, number>;
+  restaurantItems!: Table<RestaurantItem, number>;
+  people!: Table<Person, number>;
+  restaurantItemRatings!: Table<RestaurantItemRating, number>;
   meals!: Table<Meal>;
   groceryLists!: Table<GroceryList>;
   groceryListStates!: Table<GroceryListState>;
@@ -215,6 +221,13 @@ export class MySubClassedDexie extends Dexie {
         })
       ]);
     });
+    this.version(16).stores({
+      restaurants: '++id, name, updatedAt, *tags, countryKey, [countryKey+regionKey], [countryKey+regionKey+cityKey]',
+      restaurantTags: '++id, &normalizedName, group',
+      restaurantItems: '++id, restaurantId, name, category, lastOrderedDate, updatedAt',
+      people: '++id, &normalizedName, status',
+      restaurantItemRatings: '++id, itemId, personId, &[itemId+personId], [personId+score]',
+    });
     // Schema upgrade only adds stores. Binary work runs after open in bounded batches.
     this.version(15).stores({
       imageAssets: '&assetId',
@@ -249,6 +262,7 @@ export const INCLUDE_TABLES =  [
   db.stores.name,
   db.ingredientStores.name,
   db.imageAssets.name,
+  db.restaurants.name, db.restaurantTags.name, db.restaurantItems.name, db.people.name, db.restaurantItemRatings.name,
 ] as const;
 
 const ADDITIONAL_EXCLUDE_TABLES = [db.groceryListStates.name, db.imageAssets.name];
