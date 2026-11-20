@@ -1,3 +1,5 @@
+import { restaurantRowSchemas, validateRestaurantRelations } from '../../types/restaurants';
+import { canonicalJson } from '../sync/snapshot-validation';
 import Dexie from 'dexie';
 import { importInto, peakImportFile } from 'dexie-export-import';
 import { z } from 'zod';
@@ -23,6 +25,7 @@ const mealImage = z.union([
   z.object({ type: z.literal('recipeImage'), recipeId: id, imageIndex: z.number().int().nonnegative(), isThumbnail: z.boolean().optional() }),
 ]);
 const rowSchemas: Record<string, z.ZodType> = {
+  ...restaurantRowSchemas,
   meals: z.object({ id, name: z.string(), ingredients: z.array(ingredient), tags: z.array(id).optional(),
     recipe: z.string().optional(), pendingRecipeId: z.string().optional(), createdAt: date, updatedAt: date, images: z.array(mealImage).optional() }),
   recipes: z.object({ id, mealId: id, images: z.array(recipeImage), url: z.string(), notes: z.string() }),
@@ -43,12 +46,13 @@ export const validatePortableDatabase = async (database: MySubClassedDexie): Pro
       if (!rowSchemas[tableName].safeParse(row).success) throw new Error(`Invalid backup row in ${tableName}`);
     }
   }
+  validateRestaurantRelations({ restaurants: await database.restaurants.toArray(), restaurantTags: await database.restaurantTags.toArray(), restaurantItems: await database.restaurantItems.toArray(), people: await database.people.toArray(), restaurantItemRatings: await database.restaurantItemRatings.toArray() });
   // Keep only external hashing work inside waitFor. Wrapping database reads as well
   // loses their transaction context and can deadlock behind a queued migration write.
   for (const asset of await database.imageAssets.toArray()) await Dexie.waitFor(verifyCachedAsset(asset));
-  for (const tableName of ['meals', 'recipes', 'pendingRecipes']) {
+  for (const tableName of ['meals', 'recipes', 'pendingRecipes', 'restaurantItems', 'restaurants']) {
     for (const row of await database.table(tableName).toArray()) {
-      for (const image of row.images ?? []) {
+      for (const image of (tableName === 'restaurants' ? row.menuImages : row.images) ?? []) {
         const url = typeof image === 'string' ? image : image?.type === 'url' ? image.url : undefined;
         if (typeof url === 'string' && /^blob:/i.test(url)) throw new Error('Backup contains an unrecoverable temporary image URL');
         if (isAssetRef(image) && !await database.imageAssets.get(image.assetId)) {
@@ -62,14 +66,15 @@ export const validatePortableDatabase = async (database: MySubClassedDexie): Pro
 export const getTemporaryDB = async (file: Blob): Promise<MySubClassedDexie> => {
   const metadata = await peakImportFile(file);
   if (metadata.formatName !== 'dexie' || metadata.formatVersion !== 1 ||
-      ![12, 14, 15].includes(metadata.data.databaseVersion)) throw new Error('Unsupported backup version');
+      ![12, 14, 15, 16].includes(metadata.data.databaseVersion)) throw new Error('Unsupported backup version');
   const tempDB = new MySubClassedDexie(true);
   try {
-    const expected = metadata.data.databaseVersion === 15 ? INCLUDE_TABLES : INCLUDE_TABLES.filter(name => name !== 'imageAssets');
+    const oldTables = INCLUDE_TABLES.filter(name => !(name in restaurantRowSchemas));
+    const expected = metadata.data.databaseVersion === 16 ? INCLUDE_TABLES : metadata.data.databaseVersion === 15 ? oldTables : oldTables.filter(name => name !== 'imageAssets');
     if (expected.some(name => !metadata.data.tables.some(table => table.name === name))) throw new Error('Incomplete backup tables');
     const seenIds = new Map<string, Set<unknown>>();
     await importInto(tempDB, file, {
-      filter: table => INCLUDE_TABLES.includes(table),
+      filter: table => expected.includes(table),
       transform: (table, value, key) => {
         if (!rowSchemas[table].safeParse(value).success) throw new Error(`Invalid backup row in ${table}`);
         const rowId = table === 'imageAssets' ? value.assetId : value.id;
@@ -150,6 +155,7 @@ export const getMealDiffs = async (oldDb: MySubClassedDexie, newDb: MySubClassed
 export const getDiffOfDbs = async (oldDb: MySubClassedDexie, newDb: MySubClassedDexie) => {
   return {
     mealDiffs: await getMealDiffs(oldDb, newDb),
+    restaurantDiffs: await getRestaurantDiffs(oldDb,newDb),
   };
 };
 
@@ -167,4 +173,14 @@ export const getDiffsFromNewImport = async (file: Blob) => {
   });
 
   return diffs;
+}
+
+export async function getRestaurantDiffs(oldDb: MySubClassedDexie, newDb: MySubClassedDexie) {
+  const result: {table:string; added:number; removed:number; changed:number; before:number; after:number}[] = [];
+  for (const table of Object.keys(restaurantRowSchemas)) {
+    const oldRows = await oldDb.table(table).toArray(), newRows = await newDb.table(table).toArray();
+    const oldMap = new Map(oldRows.map(r => [r.id,canonicalJson(r)])), newMap = new Map(newRows.map(r => [r.id,canonicalJson(r)]));
+    result.push({table,added:newRows.filter(r => !oldMap.has(r.id)).length,removed:oldRows.filter(r => !newMap.has(r.id)).length,changed:newRows.filter(r => oldMap.has(r.id) && oldMap.get(r.id) !== newMap.get(r.id)).length,before:oldRows.length,after:newRows.length});
+  }
+  return result;
 }

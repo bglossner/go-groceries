@@ -4,7 +4,7 @@ import { hashBlob, isAssetRef, verifyCachedAsset } from '../../db/image-cache';
 import { IMAGE_LIMITS, IMAGE_MIME_TYPES, type ImageRef, type ImageMimeType } from '../../shareable/image-assets';
 import { SNAPSHOT_TABLES, type Snapshot, type SnapshotRows } from '../../shareable/snapshot';
 import { canonicalJson, makeAsset, parseSnapshot } from './snapshot-validation';
-import { getMealDiffs } from '../db/import';
+import { getDiffOfDbs } from '../db/import';
 
 const imageRef = (image: unknown): ImageRef => {
   if (isAssetRef(image)) return { kind: 'asset', assetId: image.assetId,
@@ -31,8 +31,8 @@ function normalizedTables(rows: MetadataRows): SnapshotRows {
   return tables;
 }
 
-export const metadataDigest = async (tables: SnapshotRows) => {
-  const ordered = Object.fromEntries(SNAPSHOT_TABLES.map(name => [name, [...tables[name]].sort((a, b) =>
+export const metadataDigest = async (tables: Snapshot['data']['tables']) => {
+  const ordered = Object.fromEntries(SNAPSHOT_TABLES.map(name => [name, [...(tables[name as keyof typeof tables] ?? [])].sort((a, b) =>
     typeof a.id === 'number' && typeof b.id === 'number' ? a.id - b.id : String(a.id).localeCompare(String(b.id)))]));
   return hashBlob(new Blob([canonicalJson(ordered)]));
 };
@@ -50,7 +50,7 @@ export async function freezeSnapshot(collectionId: string, snapshotId: string) {
     const rows = Object.fromEntries(await Promise.all(SNAPSHOT_TABLES.map(async name => [name, await db.table(name).toArray()])));
     const tables = normalizedTables(rows as MetadataRows);
     const referenced = new Set<string>();
-    for (const row of [...tables.meals, ...tables.recipes, ...tables.pendingRecipes]) {
+    for (const row of [...tables.meals, ...tables.recipes, ...tables.pendingRecipes, ...tables.restaurantItems, ...tables.restaurants.map(r => ({images:r.menuImages}))]) {
       for (const image of row.images ?? []) if (image.kind === 'asset') referenced.add(image.assetId);
     }
     const copies = new Map<string, LocalImageAsset>();
@@ -72,12 +72,12 @@ export async function freezeSnapshot(collectionId: string, snapshotId: string) {
     sha256: asset.assetId, mimeType: asset.mimeType as ImageMimeType, byteLength: asset.byteLength,
   }));
   const snapshot = parseSnapshot({ format: 'go-groceries-snapshot', version: 2, collectionId, snapshotId, assets,
-    data: { schemaVersion: 15, adapterVersion: 1, tables: frozen.tables } });
+    data: { schemaVersion: 16, adapterVersion: 2, tables: frozen.tables } });
   return { snapshot, copies: frozen.copies };
 }
 
 export function localTables(snapshot: Snapshot) {
-  const tables = structuredClone(snapshot.data.tables);
+  const tables = {restaurants:[],restaurantTags:[],restaurantItems:[],people:[],restaurantItemRatings:[],...structuredClone(snapshot.data.tables)} as SnapshotRows;
   return {
     ...tables,
     recipes: tables.recipes.map(row => ({ ...row, images: row.images.map(image => image.kind === 'externalUrl' ? image.url : image) })),
@@ -104,6 +104,6 @@ export async function stageSnapshot(value: unknown) {
 }
 export async function snapshotDiffs(value: unknown) {
   const { temporary } = await stageSnapshot(value);
-  try { return { mealDiffs: await getMealDiffs(db, temporary) }; }
+  try { return await getDiffOfDbs(db, temporary); }
   finally { await temporary.delete(); }
 }

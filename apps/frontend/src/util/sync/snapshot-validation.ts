@@ -1,6 +1,7 @@
+import { restaurantRowSchemas, validateRestaurantRelations } from '../../types/restaurants';
 import { z } from 'zod';
 import { IMAGE_LIMITS, IMAGE_MIME_TYPES } from '../../shareable/image-assets';
-import { SNAPSHOT_LIMITS, SNAPSHOT_TABLES } from '../../shareable/snapshot';
+import { SNAPSHOT_LIMITS } from '../../shareable/snapshot';
 import type { ImageAsset, ImageUploadInput } from '../../shareable/image-assets';
 import type { Snapshot } from '../../shareable/snapshot';
 
@@ -51,10 +52,7 @@ const rowArray = <T extends z.ZodTypeAny>(schema: T) => z.array(schema).max(SNAP
 const ids = z.array(id).max(SNAPSHOT_LIMITS.records);
 const strings = z.array(z.string().max(4096)).max(SNAPSHOT_LIMITS.records);
 const imageRefs = z.array(ref).max(SNAPSHOT_LIMITS.imagesPerRecord);
-export const snapshotSchema = z.object({
-  format: z.literal('go-groceries-snapshot'), version: z.literal(2), collectionId: uuid, snapshotId: uuid,
-  assets: z.array(assetSchema).max(SNAPSHOT_LIMITS.assets),
-  data: z.object({ schemaVersion: z.literal(15), adapterVersion: z.literal(1), tables: z.object({
+const legacyTables = z.object({
     meals: rowArray(z.object({ id, name: text, recipe: text.optional(), ingredients: rowArray(ingredient),
       tags: ids.optional(), createdAt: date, updatedAt: date, pendingRecipeId: uuid.optional(),
       images: z.array(mealRef).max(SNAPSHOT_LIMITS.imagesPerRecord).optional() }).strict()),
@@ -66,7 +64,22 @@ export const snapshotSchema = z.object({
     pendingRecipes: rowArray(z.object({ id: uuid, content: text.optional(), sourceUrl: optionalUrl, createdAt: date, images: imageRefs.optional() }).strict()),
     stores: rowArray(z.object({ id, name: text, color: z.string().max(100).optional() }).strict()),
     ingredientStores: rowArray(z.object({ id, ingredientName: text, storeId: id }).strict()),
-  }).strict() }).strict(),
+}).strict();
+const restaurantTables = legacyTables.extend(Object.fromEntries(Object.entries(restaurantRowSchemas).map(([name,schema]) => [name,rowArray(schema)])) as {
+  restaurants: z.ZodArray<typeof restaurantRowSchemas.restaurants>;
+  restaurantTags: z.ZodArray<typeof restaurantRowSchemas.restaurantTags>;
+  restaurantItems: z.ZodArray<typeof restaurantRowSchemas.restaurantItems>;
+  people: z.ZodArray<typeof restaurantRowSchemas.people>;
+  restaurantItemRatings: z.ZodArray<typeof restaurantRowSchemas.restaurantItemRatings>;
+});
+export const snapshotSchema = z.object({
+  format: z.literal('go-groceries-snapshot'), version: z.literal(2), collectionId: uuid, snapshotId: uuid,
+  assets: z.array(assetSchema).max(SNAPSHOT_LIMITS.assets),
+  data: z.union([
+    z.object({schemaVersion:z.literal(15),adapterVersion:z.literal(1),tables:legacyTables}).strict(),
+    z.object({schemaVersion:z.literal(16),adapterVersion:z.literal(2),tables:restaurantTables}).strict(),
+  ]),
+
 }).strict().superRefine((snapshot, ctx) => {
   const assets = new Set<string>();
   for (const asset of snapshot.assets) {
@@ -76,17 +89,21 @@ export const snapshotSchema = z.object({
     assets.add(asset.assetId);
   }
   let count = 0;
-  for (const table of SNAPSHOT_TABLES) {
-    const rows = snapshot.data.tables[table];
+  for (const rows of Object.values(snapshot.data.tables)) {
     count += rows.length;
     if (new Set(rows.map(row => row.id)).size !== rows.length) ctx.addIssue({ code: 'custom', message: 'Duplicate row ID' });
   }
   if (count > SNAPSHOT_LIMITS.records) ctx.addIssue({ code: 'custom', message: 'Too many records' });
-  for (const row of [...snapshot.data.tables.meals, ...snapshot.data.tables.recipes, ...snapshot.data.tables.pendingRecipes]) {
+  for (const row of [...snapshot.data.tables.meals, ...snapshot.data.tables.recipes, ...snapshot.data.tables.pendingRecipes, ...(snapshot.data.schemaVersion === 16 ? snapshot.data.tables.restaurantItems : []), ...(snapshot.data.schemaVersion === 16 ? snapshot.data.tables.restaurants.map(r => ({images:r.menuImages})) : [])]) {
     for (const image of row.images ?? []) {
       if (image.kind === 'asset' && !assets.has(image.assetId)) ctx.addIssue({ code: 'custom', message: 'Unregistered asset reference' });
     }
   }
+  if (snapshot.data.schemaVersion === 16) {
+    try { validateRestaurantRelations(snapshot.data.tables); }
+    catch (error) { ctx.addIssue({ code:'custom', message:(error as Error).message }); }
+  }
+
 });
 export function parseSnapshot(value: unknown): Snapshot {
   const parsed = snapshotSchema.safeParse(value);
@@ -104,7 +121,7 @@ export function parseSnapshot(value: unknown): Snapshot {
       }
     }
   }
-  for (const row of [...snapshot.data.tables.meals, ...snapshot.data.tables.recipes, ...snapshot.data.tables.pendingRecipes]) {
+  for (const row of [...snapshot.data.tables.meals, ...snapshot.data.tables.recipes, ...snapshot.data.tables.pendingRecipes, ...(snapshot.data.schemaVersion === 16 ? snapshot.data.tables.restaurantItems : []), ...(snapshot.data.schemaVersion === 16 ? snapshot.data.tables.restaurants.map(r => ({images:r.menuImages})) : [])]) {
     for (const image of row.images ?? []) if (image.kind === 'asset') referenced.add(image.assetId);
   }
   if (snapshot.assets.some(asset => !referenced.has(asset.assetId))) throw new Error('Snapshot includes unreferenced images');

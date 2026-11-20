@@ -1,3 +1,4 @@
+import type { Restaurant, RestaurantTag, RestaurantItem, Person, RestaurantItemRating } from './restaurants';
 import type { ImageAsset, ImageRef } from './image-assets';
 
 export const SNAPSHOT_LIMITS = {
@@ -10,6 +11,7 @@ export const SNAPSHOT_LIMITS = {
 export const SNAPSHOT_TABLES = [
   'meals', 'groceryLists', 'groceryListStates', 'recipes', 'tags',
   'customIngredients', 'pendingRecipes', 'stores', 'ingredientStores',
+  'restaurants', 'restaurantTags', 'restaurantItems', 'people', 'restaurantItemRatings',
 ] as const;
 export type SnapshotIngredient = { name: string; quantity?: number };
 export type SnapshotMealImage = (
@@ -17,7 +19,7 @@ export type SnapshotMealImage = (
   | { kind: 'recipeImage'; recipeId: number; imageIndex: number }
 ) & { isThumbnail?: boolean };
 /** Dates are ISO UTC strings and IDs are explicit; this is not a Dexie export. */
-export type SnapshotRows = {
+export type LegacySnapshotRows = {
   meals: { id: number; name: string; recipe?: string; ingredients: SnapshotIngredient[];
     tags?: number[]; createdAt: string; updatedAt: string; pendingRecipeId?: string;
     images?: SnapshotMealImage[] }[];
@@ -32,13 +34,20 @@ export type SnapshotRows = {
   stores: { id: number; name: string; color?: string }[];
   ingredientStores: { id: number; ingredientName: string; storeId: number }[];
 };
+export type SnapshotRows = LegacySnapshotRows & {
+  restaurants: (Restaurant & {id:number})[];
+  restaurantTags: (RestaurantTag & {id:number})[];
+  restaurantItems: (RestaurantItem & {id:number})[];
+  people: (Person & {id:number})[];
+  restaurantItemRatings: (RestaurantItemRating & {id:number})[];
+};
 export type Snapshot = {
   format: 'go-groceries-snapshot';
   version: 2;
   collectionId: string;
   snapshotId: string;
   assets: ImageAsset[];
-  data: { schemaVersion: 15; adapterVersion: 1; tables: SnapshotRows };
+  data: { schemaVersion: 15; adapterVersion: 1; tables: LegacySnapshotRows } | { schemaVersion: 16; adapterVersion: 2; tables: SnapshotRows };
 };
 /** revision is an opaque R2 ETag. Null expectedRevision creates the first head. */
 export type SnapshotHead = { snapshotId: string; revision: string };

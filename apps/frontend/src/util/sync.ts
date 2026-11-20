@@ -36,6 +36,7 @@ async function publish(options: { existingSync?: Sync; automatic: boolean; newLo
     sync = { ...sync, pendingPublication };
   }
   const pending = sync.pendingPublication!;
+  if (pending.snapshot.data.schemaVersion !== 16 || pending.snapshot.data.adapterVersion !== 2) throw new Error('Older pending snapshot cannot be published. Import the current collection in Sync settings before retrying.');
   const snapshot = parseSnapshot(pending.snapshot);
   // Reconcile the authoritative frozen inventory on every attempt, even after remote deletion.
   for (let start = 0; start < snapshot.assets.length; start += IMAGE_LIMITS.batch) {

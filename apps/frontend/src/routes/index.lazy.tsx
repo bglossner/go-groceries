@@ -3,7 +3,7 @@ import { Typography, Box, Button, Dialog, DialogActions, DialogContent, DialogTi
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { exportBlobToFile, getExportBlob } from '../util/db/export';
-import { handleFileImport } from '../util/db/import';
+import { getDiffsFromNewImport, type DiffsResult, handleFileImport } from '../util/db/import';
 import { getLastEditedGroceryListId } from '../util/db/settings';
 import { useToast } from '../hooks/useToast';
 import { db, type GroceryList } from '../db/db';
@@ -23,6 +23,8 @@ function Index() {
   const { showErrorToast } = useToast();
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importStatus, setImportStatus] = useState<'idle' | 'loading' | 'success' | 'failure'>('idle');
+  const [pendingFile,setPendingFile] = useState<Blob | null>(null);
+  const [replacement,setReplacement] = useState<DiffsResult | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   
   const { data: lastEditedGroceryListId } = useQuery({
@@ -48,7 +50,10 @@ function Index() {
     setImportError(null);
 
     try {
-      console.log('Doing new style import');
+      const diffs = await getDiffsFromNewImport(file);
+      if (diffs.restaurantDiffs.some(r => r.added || r.removed || r.changed)) {
+        setPendingFile(file);setReplacement(diffs);setImportStatus('idle');return;
+      }
       await handleFileImport(file);
 
       setImportStatus('success');
@@ -88,6 +93,7 @@ function Index() {
       <Dialog open={importModalOpen} onClose={() => { setImportModalOpen(false); setImportStatus('idle'); }}>
         <DialogTitle>Import Groceries</DialogTitle>
         <DialogContent>
+          {replacement?.restaurantDiffs.map(row => <Typography key={row.table}>{row.table}: {row.before} local → {row.after} imported; {row.added} added, {row.removed} removed, {row.changed} changed.</Typography>)}
           {importStatus === 'idle' && (
             <Typography>Are you sure? This will override your local DB.</Typography>
           )}
@@ -104,7 +110,10 @@ function Index() {
           )}
         </DialogContent>
         <DialogActions>
-          {importStatus === 'idle' && (
+          {importStatus === 'idle' && pendingFile && <Button onClick={async () => {
+            setImportStatus('loading');try {await handleFileImport(pendingFile);await queryClient.invalidateQueries();setImportStatus('success');setPendingFile(null);setReplacement(null);} catch(error) {setImportStatus('failure');setImportError((error as Error).message);}
+          }}>Confirm replacement</Button>}
+          {importStatus === 'idle' && !pendingFile && (
             <>
               <Button onClick={() => setImportModalOpen(false)}>No</Button>
               <Button
@@ -142,7 +151,7 @@ function Index() {
       <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center', gap: 2 }}>
         <Button
           variant="contained"
-          onClick={() => setImportModalOpen(true)}
+          onClick={() => {setPendingFile(null);setReplacement(null);setImportStatus('idle');setImportModalOpen(true);}}
         >
           Import Groceries
         </Button>

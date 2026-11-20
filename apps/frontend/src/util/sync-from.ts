@@ -1,7 +1,7 @@
 import Dexie from 'dexie';
 import { db, type Sync } from '../db/db';
 import { getPresignedUrlExpirationInfo } from './file/s3-presigned';
-import { getDiffsFromNewImport, handleFileImport, type DiffsResult } from './db/import';
+import { getRestaurantDiffs, getDiffsFromNewImport, handleFileImport, type DiffsResult } from './db/import';
 import { SNAPSHOT_LIMITS, SNAPSHOT_TABLES, type Snapshot, type SnapshotHead, type SnapshotReadResponse } from '../shareable/snapshot';
 import { parseSnapshot } from './sync/snapshot-validation';
 import { localMetadataDigest, metadataDigest, snapshotDiffs, stageSnapshot } from './sync/snapshot-adapter';
@@ -100,6 +100,10 @@ export async function importSyncFile(blob: Blob, options: { automatic?: boolean 
   }
   if (blob.size > SNAPSHOT_LIMITS.byteLength) throw new Error('Snapshot exceeds size limit');
   const { snapshot, temporary } = await stageSnapshot(value);
+  if (options.automatic && snapshot.data.schemaVersion === 15) {
+    const diff = await getRestaurantDiffs(db,temporary);
+    if (diff.some(r => r.before > 0)) { await temporary.delete(); throw new Error('Older snapshot would remove restaurant data. Confirm replacement manually.'); }
+  }
   const context = contexts.get(blob);
   const importGeneration = crypto.randomUUID();
   try {

@@ -48,6 +48,15 @@ async function loadSnapshot(storage: ObjectStorage, collectionId: string, snapsh
   return snapshot;
 }
 
+async function rejectDowngrade(storage: ObjectStorage, snapshot: Snapshot, current?: {bytes:Uint8Array}) {
+  if (snapshot.data.schemaVersion !== 15) return;
+  const head = current ?? await storage.getWithRevision(headKey(snapshot.collectionId),256);
+  if (!head) return;
+  const pointer = z.object({snapshotId:uuid}).strict().parse(JSON.parse(new TextDecoder().decode(head.bytes)));
+  const latest = await loadSnapshot(storage,snapshot.collectionId,pointer.snapshotId);
+  if (latest.data.schemaVersion === 16) throw new ErrorWrapper({message:'Collection requires schema 16 / adapter 2. Update all writer clients.',statusCode:409});
+}
+
 export function imageStorageEndpoints(app: AppType, deps: StorageDependencies = defaultDependencies) {
   function post(path: string, action: (c: AppContext, body: unknown, storage: ObjectStorage) => Promise<Response>) {
     app.post('/v2/' + path, async c => {
@@ -146,6 +155,7 @@ export function imageStorageEndpoints(app: AppType, deps: StorageDependencies = 
     const body = commit.parse(value);
     requireWriter(c, body.pass);
     const snapshot = parseSnapshot(body.snapshot);
+    await rejectDowngrade(storage,snapshot);
     const serialized = canonicalJson(snapshot);
     const bytes = new TextEncoder().encode(serialized);
     if (bytes.length > SNAPSHOT_LIMITS.byteLength) throw new ErrorWrapper({ message: 'Snapshot exceeds size limit', statusCode: 413 });
@@ -165,11 +175,12 @@ export function imageStorageEndpoints(app: AppType, deps: StorageDependencies = 
     const body = publish.parse(value);
     requireWriter(c, body.pass);
     // An immutable snapshot can survive a publication conflict and be retried safely.
-    await loadSnapshot(storage, body.collectionId, body.snapshotId);
+    const snapshot = await loadSnapshot(storage, body.collectionId, body.snapshotId);
     const key = headKey(body.collectionId);
     const bytes = new TextEncoder().encode(JSON.stringify({ snapshotId: body.snapshotId }));
     // Reconcile a successful earlier attempt before trying its stale revision again.
     const current = await storage.getWithRevision(key, 256);
+    await rejectDowngrade(storage,snapshot,current ?? undefined);
     if (current && current.revision && JSON.parse(new TextDecoder().decode(current.bytes)).snapshotId === body.snapshotId) {
       return c.json({ snapshotId: body.snapshotId, revision: current.revision });
     }
