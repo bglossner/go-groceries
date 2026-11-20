@@ -1,5 +1,3 @@
-import { type MealForm } from '../types/meals';
-import { type RecipeForm } from '../types/recipe';
 import type { ErrorResponse } from './response';
 
 export type MealRecipeImage = {
@@ -16,9 +14,14 @@ export type MealRecipeImage = {
   base64: string;
 };
 
-export type MealGenerationDataInput = Pick<MealForm, 'name' | 'ingredients'> & {
+// Transport types must not pull browser form schemas or database code into Workers.
+export type MealGenerationDataInput = {
+  name: string;
+  ingredients: { name: string; quantity?: number }[];
   tags?: string[];
-  recipe?: Partial<Pick<RecipeForm, 'notes' | 'url'>> & {
+  recipe?: {
+    notes?: string;
+    url?: string;
     images?: MealRecipeImage[];
   };
 };
