@@ -78,6 +78,7 @@ export const getTemporaryDB = async (file: Blob): Promise<MySubClassedDexie> => 
       transform: (table, value, key) => {
         if (!rowSchemas[table].safeParse(value).success) throw new Error(`Invalid backup row in ${table}`);
         const rowId = table === 'imageAssets' ? value.assetId : value.id;
+        if (rowId === undefined) throw new Error(`Missing backup row ID in ${table}`);
         const seen = seenIds.get(table) ?? new Set<unknown>();
         if (seen.has(rowId)) throw new Error(`Duplicate backup ID in ${table}`);
         seen.add(rowId); seenIds.set(table, seen);
@@ -86,6 +87,10 @@ export const getTemporaryDB = async (file: Blob): Promise<MySubClassedDexie> => 
       acceptMissingTables: true,
       acceptVersionDiff: true, acceptNameDiff: true, clearTablesBeforeImport: true,
     });
+    if(metadata.data.databaseVersion===16) for(const name of Object.keys(restaurantRowSchemas)) {
+      const header=metadata.data.tables.find(table=>table.name===name)!;
+      if(!Number.isInteger(header.rowCount)||header.rowCount<0||await tempDB.table(name).count()!==header.rowCount) throw new Error('Incomplete restaurant backup rows');
+    }
     await validatePortableDatabase(tempDB);
     await runImageMigration(tempDB);
     await validatePortableDatabase(tempDB);
@@ -184,3 +189,8 @@ export async function getRestaurantDiffs(oldDb: MySubClassedDexie, newDb: MySubC
   }
   return result;
 }
+
+export const RESTAURANT_TABLE_LABELS: Record<string,string> = {
+  restaurants:'Restaurants', restaurantTags:'Restaurant tags', restaurantItems:'Dishes', people:'People', restaurantItemRatings:'Ratings',
+};
+export const hasRestaurantChanges = (diffs: {restaurantDiffs?: Awaited<ReturnType<typeof getRestaurantDiffs>>}) => !!diffs.restaurantDiffs?.some(row=>row.added||row.removed||row.changed);

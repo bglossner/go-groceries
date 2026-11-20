@@ -184,6 +184,7 @@ export function imageStorageEndpoints(app: AppType, deps: StorageDependencies = 
     if (current && current.revision && JSON.parse(new TextDecoder().decode(current.bytes)).snapshotId === body.snapshotId) {
       return c.json({ snapshotId: body.snapshotId, revision: current.revision });
     }
+    if ((current?.revision ?? null) !== body.expectedRevision) throw conflict();
     try {
       const result = await storage.put(key, bytes, { ContentType: 'application/json',
         ...(body.expectedRevision === null ? { IfNoneMatch: '*' } : { IfMatch: body.expectedRevision }) });

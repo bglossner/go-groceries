@@ -1,3 +1,4 @@
+import {ErrorWrapper} from '../types';
 import { restaurantRowSchemas, validateRestaurantRelations } from './restaurants';
 import { z } from 'zod';
 import { IMAGE_LIMITS, IMAGE_MIME_TYPES } from '@go-groceries/frontend/image-assets';
@@ -116,7 +117,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         const owned = snapshot.data.tables.recipes.filter(recipe => recipe.mealId === meal.id).sort((a, b) => a.id - b.id);
         const recipe = snapshot.data.tables.recipes.find(recipe => recipe.id === image.recipeId);
         if (!recipe || recipe.mealId !== meal.id || owned[0]?.id !== recipe.id || !recipe.images[image.imageIndex]) {
-          throw new Error('Unresolved recipe image slot; original data has been retained');
+          throw new z.ZodError([{code:'custom',path:[],message:'Unresolved recipe image slot; original data has been retained'}]);
         }
       }
     }
@@ -124,7 +125,8 @@ export function parseSnapshot(value: unknown): Snapshot {
   for (const row of [...snapshot.data.tables.meals, ...snapshot.data.tables.recipes, ...snapshot.data.tables.pendingRecipes, ...(snapshot.data.schemaVersion === 16 ? snapshot.data.tables.restaurantItems : []), ...(snapshot.data.schemaVersion === 16 ? snapshot.data.tables.restaurants.map(r => ({images:r.menuImages})) : [])]) {
     for (const image of row.images ?? []) if (image.kind === 'asset') referenced.add(image.assetId);
   }
-  if (snapshot.assets.some(asset => !referenced.has(asset.assetId))) throw new Error('Snapshot includes unreferenced images');
+  if (snapshot.assets.some(asset => !referenced.has(asset.assetId))) throw new z.ZodError([{code:'custom',path:[],message:'Snapshot includes unreferenced images'}]);
+  if (new TextEncoder().encode(canonicalJson(snapshot)).length>SNAPSHOT_LIMITS.byteLength) throw new ErrorWrapper({message:'Snapshot exceeds size limit',statusCode:413});
   return snapshot;
 }
 

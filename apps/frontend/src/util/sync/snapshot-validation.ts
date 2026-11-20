@@ -107,7 +107,10 @@ export const snapshotSchema = z.object({
 });
 export function parseSnapshot(value: unknown): Snapshot {
   const parsed = snapshotSchema.safeParse(value);
-  if (!parsed.success) throw new Error('Invalid v2 snapshot metadata, image references or version');
+  if (!parsed.success) {
+    if(parsed.error.issues.some(issue=>issue.message==='Too many records'||(issue.code==='too_big'&&issue.origin==='array'))) throw new Error('Cloud sync blocked: at most 10,000 metadata rows and 512 owned images per collection. Reduce the collection; local data is retained.');
+    throw new Error('Invalid v2 snapshot metadata, image references or version');
+  }
   const snapshot = parsed.data as Snapshot;
   const referenced = new Set<string>();
   for (const meal of snapshot.data.tables.meals) {
@@ -125,7 +128,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     for (const image of row.images ?? []) if (image.kind === 'asset') referenced.add(image.assetId);
   }
   if (snapshot.assets.some(asset => !referenced.has(asset.assetId))) throw new Error('Snapshot includes unreferenced images');
-  if (new Blob([canonicalJson(snapshot)]).size > SNAPSHOT_LIMITS.byteLength) throw new Error('Snapshot exceeds 2 MiB');
+  if (new Blob([canonicalJson(snapshot)]).size > SNAPSHOT_LIMITS.byteLength) throw new Error('Snapshot exceeds 2 MiB. Reduce the collection; local data is retained.');
   return snapshot;
 }
 

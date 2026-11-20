@@ -27,11 +27,11 @@ async function publish(options: { existingSync?: Sync; automatic: boolean; newLo
   }
   const collectionId = sync.collectionId!;
   const resumedPending = !!sync.pendingPublication;
-  if (!sync.pendingPublication) {
+  if (!sync.pendingPublication || sync.pendingPublication.snapshot.data.schemaVersion === 15) {
     progress('Preparing metadata and checking local images...');
     await runImageMigration();
     const { snapshot } = await freezeSnapshot(collectionId, crypto.randomUUID());
-    const pendingPublication = { snapshot, expectedRevision: sync.revision ?? null };
+    const pendingPublication = { snapshot, expectedRevision: sync.pendingPublication ? sync.pendingPublication.expectedRevision : sync.revision ?? null };
     await db.syncs.update(sync.id!, { pendingPublication });
     sync = { ...sync, pendingPublication };
   }

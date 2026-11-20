@@ -1,3 +1,4 @@
+import {RESTAURANT_TABLE_LABELS} from '../util/db/import';
 import type { DiffsResult } from '../util/db/import';
 import React, { useState, type ReactNode, useCallback } from 'react';
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Box, List, ListItem } from '@mui/material';
@@ -58,7 +59,7 @@ export const DiffsModalProvider: React.FC<{ children: ReactNode }> = ({ children
             Any unsynced local edits will be replaced. The following meal names changed:
           </Typography>
           {diffs?.restaurantDiffs?.map(row => <Typography key={row.table} sx={{mt:1}}>
-            {row.table}: {row.before} local → {row.after} imported; {row.added} added, {row.removed} removed, {row.changed} changed.
+            {RESTAURANT_TABLE_LABELS[row.table]??row.table}: {row.before} local → {row.after} imported; {row.added} added, {row.removed} removed, {row.changed} changed.
           </Typography>)}
           {diffs && diffs.mealDiffs.toAdd.length > 0 && (
             <Box sx={{ mt: 2 }}>

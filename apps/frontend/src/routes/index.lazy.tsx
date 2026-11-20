@@ -1,3 +1,4 @@
+import {RESTAURANT_TABLE_LABELS} from '../util/db/import';
 import { createLazyFileRoute, Link } from '@tanstack/react-router';
 import { Typography, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, CircularProgress } from '@mui/material';
 import React, { useState } from 'react';
@@ -93,7 +94,7 @@ function Index() {
       <Dialog open={importModalOpen} onClose={() => { setImportModalOpen(false); setImportStatus('idle'); }}>
         <DialogTitle>Import Groceries</DialogTitle>
         <DialogContent>
-          {replacement?.restaurantDiffs.map(row => <Typography key={row.table}>{row.table}: {row.before} local → {row.after} imported; {row.added} added, {row.removed} removed, {row.changed} changed.</Typography>)}
+          {replacement?.restaurantDiffs.map(row => <Typography key={row.table}>{RESTAURANT_TABLE_LABELS[row.table]??row.table}: {row.before} local → {row.after} imported; {row.added} added, {row.removed} removed, {row.changed} changed.</Typography>)}
           {importStatus === 'idle' && (
             <Typography>Are you sure? This will override your local DB.</Typography>
           )}
@@ -110,6 +111,7 @@ function Index() {
           )}
         </DialogContent>
         <DialogActions>
+          {importStatus === 'idle' && pendingFile && <Button onClick={()=>{setPendingFile(null);setReplacement(null);setImportModalOpen(false);}}>Cancel</Button>}
           {importStatus === 'idle' && pendingFile && <Button onClick={async () => {
             setImportStatus('loading');try {await handleFileImport(pendingFile);await queryClient.invalidateQueries();setImportStatus('success');setPendingFile(null);setReplacement(null);} catch(error) {setImportStatus('failure');setImportError((error as Error).message);}
           }}>Confirm replacement</Button>}

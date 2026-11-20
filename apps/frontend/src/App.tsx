@@ -1,3 +1,4 @@
+import {hasRestaurantChanges} from './util/db/import';
 import React, { useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { RouterProvider, createRouter } from '@tanstack/react-router';
@@ -118,7 +119,7 @@ const AppWrapper = () => {
         const { outcome } = result;
         if (outcome === 'SUCCESS' && handledImports.current.has(result.blob)) return;
         if (outcome === 'SUCCESS') handledImports.current.add(result.blob);
-        if (outcome === 'SUCCESS' && (result.needsConfirmation || result.diffsResult.mealDiffs.toAdd.length > 0 || result.diffsResult.mealDiffs.toRemove.length > 0)) {
+        if (outcome === 'SUCCESS' && (result.needsConfirmation || result.diffsResult.mealDiffs.toAdd.length > 0 || result.diffsResult.mealDiffs.toRemove.length > 0 || hasRestaurantChanges(result.diffsResult))) {
           openDiffsModal(result.diffsResult, result.blob, () => { void queryClient.invalidateQueries(); });
         } else if (outcome === 'SUCCESS') {
           const message = await importSyncFile(result.blob, { automatic: true });
