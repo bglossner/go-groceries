@@ -1,13 +1,21 @@
 {
   "private": true,
   "scripts": {
-    "build": "turbo run build"
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "test:e2e": "node test/run-e2e.mjs",
+    "test:types": "node test/check-types.mjs"
   },
   "dependencies": {
     "magic-string": "^0.30.19"
   },
   "devDependencies": {
-    "turbo": "latest"
+    "@playwright/test": "1.56.1",
+    "esbuild": "0.25.4",
+    "fake-indexeddb": "6.2.4",
+    "jsdom": "26.1.0",
+    "turbo": "latest",
+    "vitest": "3.2.4"
   },
   "packageManager": "npm@11.4.2",
   "workspaces": [

@@ -3,13 +3,27 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", "build/**"]
+      "outputs": ["dist/**", "build/**"],
+      "passThroughEnv": [
+        "WRANGLER_SEND_METRICS",
+        "WRANGLER_LOG_PATH",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_DATA_HOME",
+        "TURBO_TELEMETRY_DISABLED",
+        "npm_config_cache"
+      ]
     },
     "check-types": {
-      "dependsOn": ["^check-types"]
+      "dependsOn": [
+        "^check-types"
+      ]
     },
     "dev": {
       "persistent": true,
+      "cache": false
+    },
+    "test": {
       "cache": false
     }
   }

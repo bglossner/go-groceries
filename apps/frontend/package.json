@@ -44,7 +44,8 @@
     "preview:pwa-test": "vite build --mode pwa-test && vite preview --host --mode pwa-test",
     "upload-assets-to-s3": "node scripts/upload-to-s3.js",
     "build-and-upload:test": "npm run check-and-build:pwa-test && npm run upload-assets-to-s3 -- --bucket go-groceries-test",
-    "build-and-upload:prod": "npm run check-and-build:pwa && npm run upload-assets-to-s3 -- --bucket go-groceries"
+    "build-and-upload:prod": "npm run check-and-build:pwa && npm run upload-assets-to-s3 -- --bucket go-groceries",
+    "test": "vitest run --config ../../test/vitest.config.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

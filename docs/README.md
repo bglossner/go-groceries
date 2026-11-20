@@ -8,6 +8,7 @@ These documents describe the source on `docs-unsure`, based on `4fe98a9`. File l
 | [Frontend](architecture/frontend.md) | Routes, UI/state ownership, forms, sync, and PWA behavior. |
 | [Data model](architecture/data-model.md) | Every Dexie table, relationships, versions, date conversion, and backup/import. |
 | [Backend workers](architecture/backend-workers.md) | Hono routes, contracts, external dependencies, configuration names, and shared backend code. |
+| [Regression testing](TESTING.md) | Offline unit/integration suites, browser flows, forced compiler checks and AL2 setup. |
 | [Development](development.md) | Package-scoped commands, Turbo configuration, local setup, and deployment paths. |
 | [Earlier branch analysis](analysis/unsure-branch-last-3-commits.md) | Historical review and checks of the three source commits preceding the documentation base. |
 
