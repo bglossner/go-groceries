@@ -1,3 +1,4 @@
+import Dexie from 'dexie';
 import { importInto, peakImportFile } from 'dexie-export-import';
 import { z } from 'zod';
 import { db, INCLUDE_TABLES, MySubClassedDexie, type Meal } from '../../db/db';
@@ -42,7 +43,9 @@ export const validatePortableDatabase = async (database: MySubClassedDexie): Pro
       if (!rowSchemas[tableName].safeParse(row).success) throw new Error(`Invalid backup row in ${tableName}`);
     }
   }
-  for (const asset of await database.imageAssets.toArray()) await verifyCachedAsset(asset);
+  // Keep only external hashing work inside waitFor. Wrapping database reads as well
+  // loses their transaction context and can deadlock behind a queued migration write.
+  for (const asset of await database.imageAssets.toArray()) await Dexie.waitFor(verifyCachedAsset(asset));
   for (const tableName of ['meals', 'recipes', 'pendingRecipes']) {
     for (const row of await database.table(tableName).toArray()) {
       for (const image of row.images ?? []) {

@@ -193,7 +193,7 @@ async function migrate(database: MySubClassedDexie, options: { maxRows?: number;
             for (const [index, image] of images.entries()) {
               if (!image || typeof image !== 'object' || image instanceof Blob || !('type' in image) || image.type !== 'recipeImage') continue;
               const resolved = resolveMealRecipeImage(row.id, image, owned);
-              if (resolved.issue) issues.push(`slot ${index}: ${resolved.issue}`);
+              if (resolved.status === 'blocked') issues.push(`slot ${index}: ${resolved.issue}`);
               else if (image.recipeId === row.id && image.recipeId !== resolved.recipe.id) {
                 images[index] = { ...image, recipeId: resolved.recipe.id! };
               }
