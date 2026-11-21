@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>Sync diagnostics · Go Groceries</title>
+<style>
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: #f1f4f8; color: #182335; font: 16px/1.5 Roboto, Helvetica, Arial, sans-serif; }
+  h1, h2, h3, h4, p, ul, ol, dl, dd { margin: 0; }
+  button, select, textarea { font: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: default; }
+  button:focus-visible, summary:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px solid #2592ef; outline-offset: 3px; }
+  .review { max-width: 1196px; margin: auto; padding: 32px 24px 48px; }
+  .intro { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; }
+  .product-name { color: #435d79; font-size: 14px; font-weight: 600; }
+  .intro h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.14; letter-spacing: -.035em; margin: 3px 0 8px; }
+  .intro p:last-child { color: #42536a; }
+  .controls { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 24px; margin: 24px 0 16px; }
+  .control-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: #42536a; }
+  .group { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border: 1px solid #ced8e5; border-radius: 8px; background: #fff; }
+  .group button { font-size: 14px; font-weight: 500; min-height: 38px; padding: 5px 12px; border: 0; border-radius: 4px; background: #fff; color: #23435f; }
+  .group button:hover { background: #edf5fc; }
+  .group button[aria-pressed="true"] { background: #e3f1ff; color: #09477e; box-shadow: inset 0 0 0 1px #9ac7ef; }
+  .notes { margin: 16px 0 20px; padding: 14px 16px; background: #fff; border: 1px solid #d4dce6; border-radius: 8px; }
+  .notes h2 { font-size: 17px; }
+  .notes dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 8px 16px; margin-top: 6px; font-size: 14px; }
+  .notes dt { color: #42536a; font-weight: 600; }
+  .notes p { font-size: 14px; color: #42536a; margin-top: 10px; }
+  .preview { --bg: #fff; --paper: #fff; --panel: #f7f9fc; --fg: #151515; --muted: #535b64; --line: #dedfe3; --primary: #1976d2; --action: #0d5da8; --on-primary: #fff; --bar: #1976d2; --bar-text: #fff; --hover: #edf5fc; --selected: #e8f3fd; --error: #9b201b; --error-line: #f1c9c5; --error-bg: #fdf1f0; --success: #25742a; --success-bg: #e8f4e9; --backdrop: #0008; position: relative; isolation: isolate; background: var(--bg); color: var(--fg); max-width: 1180px; min-height: 660px; margin: auto; border: 1px solid #c9d6e3; border-radius: 9px; overflow: hidden; box-shadow: 0 10px 28px #293b5014; color-scheme: light; }
+  .preview[data-theme="dark"] { --bg: #121212; --paper: #202020; --panel: #242424; --fg: #fff; --muted: #c2c2c2; --line: #464646; --primary: #90caf9; --action: #a7d5fb; --on-primary: #101d28; --bar: #272727; --bar-text: #fff; --hover: #243644; --selected: #273b4c; --error: #ffbab5; --error-line: #663c3a; --error-bg: #372525; --success: #9cdaa1; --success-bg: #203c29; color-scheme: dark; }
+  .preview[data-size="phone"] { max-width: 390px; min-height: 735px; }
+  .preview h2 { font-size: 24px; line-height: 1.33; font-weight: 400; }
+  .preview h3 { font-size: 20px; line-height: 1.6; font-weight: 500; }
+  .bar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; background: var(--bar); color: var(--bar-text); padding: 0 24px; min-height: 64px; box-shadow: 0 2px 5px #0004; }
+  .brand { font-size: 20px; font-weight: 500; letter-spacing: .15px; }
+  .bar-right, .shop-links { display: flex; align-items: center; gap: 14px; }
+  .shop-links { font-size: 14px; text-transform: uppercase; letter-spacing: .4px; }
+  .gear { width: 26px; height: 26px; display: grid; place-items: center; font-size: 22px; line-height: 1; }
+  [data-size="phone"] .bar { padding: 0 16px 8px; gap: 0; }
+  [data-size="phone"] .brand, [data-size="phone"] .gear { height: 56px; display: grid; align-items: center; }
+  [data-size="phone"] .bar-right, [data-size="phone"] .shop-links { display: contents; }
+  [data-size="phone"] .gear { order: 1; }
+  [data-size="phone"] .bar::after { content: ''; flex-basis: 100%; order: 2; }
+  [data-size="phone"] .shop-links span { order: 3; line-height: 36px; }
+  .settings { padding: 0 24px 26px; max-width: 1200px; margin: auto; text-align: center; }
+  [data-size="phone"] .settings { padding: 0 16px 24px; }
+  .settings > h2 { margin: 20px 0 8px; }
+  .settings h3 { margin-bottom: 6px; }
+  .sync-actions, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+  .sync-actions { justify-content: center; }
+  .sync-actions label, .names { display: inline-flex; align-items: center; gap: 6px; }
+  input[type="checkbox"] { accent-color: var(--primary); inline-size: 18px; block-size: 18px; margin: 0 2px; }
+  .btn { min-height: 40px; border: 1px solid transparent; padding: 6px 13px; border-radius: 4px; background: transparent; color: var(--action); font-size: 14px; font-weight: 500; letter-spacing: .3px; text-transform: uppercase; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+  .btn:hover { background: var(--hover); }
+  .btn:disabled { color: var(--muted); opacity: .7; }
+  .btn.filled { background: var(--primary); color: var(--on-primary); box-shadow: 0 2px 4px #0003; }
+  .btn.filled:hover { filter: brightness(.92); }
+  .btn.outlined { border-color: var(--action); }
+  .btn.danger { color: var(--error); }
+  .original-share { margin: 12px 0; }
+  .original-share p:first-child { color: var(--success); }
+  .original-share p:nth-child(2) { font-size: 14px; overflow-wrap: anywhere; margin-bottom: 6px; }
+  .sync-from { margin-top: 16px; }
+  .original-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 14px 0; }
+  .original-fields span { padding: 15px 12px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); text-align: left; }
+  .panel { width: min(100%, 710px); margin: 12px auto 0; border: 1px solid var(--line); background: var(--paper); border-radius: 4px; text-align: left; }
+  .panel-header { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 49px; padding: 7px 12px; border: 0; background: transparent; color: var(--fg); text-align: left; }
+  .panel-header:hover { background: var(--hover); }
+  .panel-header strong { flex: 1; font-size: 15px; font-weight: 600; }
+  .panel-body { padding: 11px 12px; border-top: 1px solid var(--line); }
+  .field-label { color: var(--muted); font-size: 13px; display: block; }
+  select { background: var(--paper); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; min-height: 40px; padding: 4px 8px; max-width: 100%; }
+  .badge { display: inline-flex; align-items: center; width: max-content; border-radius: 16px; padding: 2px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; background: var(--panel); color: var(--muted); }
+  .badge.failed { background: var(--error-bg); color: var(--error); }
+  .badge.succeeded { background: var(--success-bg); color: var(--success); }
+  .run-time, .small { color: var(--muted); font-size: 13px; }
+  .run-time { margin: 6px 0 8px; }
+  .result { background: var(--error-bg); border: 1px solid var(--error-line); padding: 10px 12px; border-radius: 4px; color: var(--error); }
+  .result.success { background: var(--success-bg); border-color: transparent; color: var(--success); }
+  .result strong { display: block; font-size: 15px; }
+  .result p { font-size: 14px; }
+  .result code, .step code { font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+  .image-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 12px; margin-top: 7px; border-top: 1px solid var(--error-line); padding-top: 7px; font-size: 13px; }
+  .image-meta .owner { grid-column: 1/-1; }
+  .image-meta dt { font-size: 12px; }
+  .image-meta dd { font-weight: 600; overflow-wrap: anywhere; }
+  .steps { margin-top: 8px; }
+  .steps summary { color: var(--action); cursor: pointer; min-height: 34px; padding: 6px 0; font-size: 14px; }
+  .steps ol { list-style: none; padding: 0; }
+  .step { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: start; border-top: 1px solid var(--line); padding: 7px 0; font-size: 13px; }
+  .step code { color: var(--muted); display: block; }
+  .step small { grid-column: 1/-1; color: var(--muted); font-size: 12px; }
+  .tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; }
+  .names { font-size: 13px; min-height: 38px; color: var(--muted); }
+  .log-entry { display: inline-flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
+  .overlay { position: absolute; inset: 0; z-index: 2; background: var(--backdrop); display: grid; place-items: center; padding: 24px; }
+  .dialog { display: flex; flex-direction: column; width: min(780px, 100%); max-height: 100%; background: var(--paper); color: var(--fg); border-radius: 4px; box-shadow: 0 12px 30px #0006; text-align: left; overflow: hidden; }
+  .dialog header { display: flex; justify-content: space-between; align-items: start; padding: 15px 20px 12px; border-bottom: 1px solid var(--line); gap: 8px; }
+  .icon { padding: 0; width: 40px; height: 40px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 26px; line-height: 1; flex: 0 0 auto; }
+  .icon:hover { background: var(--hover); }
+  .dialog-main { display: grid; grid-template-columns: 228px minmax(0, 1fr); overflow: auto; }
+  .run-list { padding: 11px 0; border-right: 1px solid var(--line); }
+  .run-list h4 { font-weight: 600; font-size: 13px; padding: 0 13px 5px; color: var(--muted); }
+  .run-list button { display: grid; grid-template-columns: 1fr auto; align-items: center; text-align: left; gap: 2px 5px; min-height: 56px; width: 100%; padding: 6px 10px; border: 0; border-left: 3px solid transparent; background: transparent; color: var(--fg); font-size: 13px; }
+  .run-list button:hover { background: var(--hover); }
+  .run-list button[aria-pressed="true"] { border-left-color: var(--primary); background: var(--selected); }
+  .run-list button .small { grid-column: 1/-1; }
+  .run-detail { padding: 12px 16px; min-width: 0; }
+  .run-detail h4 { font-size: 16px; font-weight: 600; }
+  .dialog footer { flex: 0 0 auto; border-top: 1px solid var(--line); padding: 6px 14px; background: var(--paper); }
+  .dialog footer .tools { border: 0; margin: 0; padding: 0; }
+  [data-size="phone"] .overlay { padding: 0; }
+  [data-size="phone"] .dialog { width: 100%; height: 100%; max-height: none; border-radius: 0; }
+  [data-size="phone"] .dialog header { padding: 12px 14px 8px; }
+  [data-size="phone"] .dialog-main { display: block; flex: 1 1 auto; }
+  [data-size="phone"] .run-list { border: 0; border-bottom: 1px solid var(--line); padding: 8px 0 0; }
+  [data-size="phone"] .run-list button { min-height: 48px; }
+  [data-size="phone"] .run-list button .small { grid-column: auto; }
+  [data-size="phone"] .run-list button .badge { grid-column: 2; grid-row: 1/3; }
+  [data-size="phone"] .run-detail { padding: 10px 14px; }
+  .report-summary { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 6px 0 9px; }
+  .report-text { display: block; min-height: 170px; width: 100%; resize: vertical; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; color: var(--fg); font: 12px/1.55 ui-monospace, Menlo, Consolas, monospace; }
+  .empty { padding: 20px; color: var(--muted); }
+  .feedback { margin: 5px 0; color: var(--action); font-size: 13px; }
+  .sub-overlay { position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; padding: 16px; background: var(--backdrop); }
+  .sub-dialog { width: min(420px, 100%); background: var(--paper); padding: 16px; border-radius: 4px; box-shadow: 0 8px 20px #0006; }
+  .sub-dialog .actions { justify-content: end; margin-top: 12px; }
+  .sub-dialog .report-text { margin-top: 8px; min-height: 160px; }
+  [data-example="true"] { background: #fff; }
+  [data-example="true"] .review { max-width: none; margin: 0; padding: 0; }
+  [data-example="true"] .preview { max-width: none; border: 0; border-radius: 0; box-shadow: none; min-height: 100vh; }
+  @media (max-width: 570px) { .review { padding: 20px 10px 32px; } .controls { gap: 10px; } }
+</style>
+</head>
+<body>
+<main class="review">
+  <div id="review-controls">
+    <header class="intro"><div>
+      <p class="product-name">Go Groceries · Settings design</p>
+      <h1>Sync diagnostics</h1>
+      <p>Find the failed step on a phone and copy a report from Settings.</p>
+    </div></header>
+    <div class="controls" id="controls"></div>
+    <section class="notes" id="notes" aria-label="Option tradeoffs"></section>
+  </div>
+  <section class="preview" id="preview" aria-label="Settings mockup"></section>
+</main>
+<script>
+'use strict';
+const options = {
+  inline: {
+    label: 'Inline details', advantage: 'The latest outcome is visible beside the sync controls.',
+    tradeoff: 'An expanded run pushes Sync From further down. Comparing runs takes a selector change.', cost: 'About ½–1 UI day',
+    copy: 'Copy the selected run. Clear removes all local runs after confirmation.'
+  },
+  dialog: {
+    label: 'Sync log dialog', advantage: 'Recent results stay visible while switching between runs. The Settings entry stays compact.',
+    tradeoff: 'Opening the log takes a tap. The dialog needs focus handling and a full-screen phone layout.', cost: 'About 1–2 UI days',
+    copy: 'Copy the selected run. Clear removes all local runs after confirmation.'
+  },
+  report: {
+    label: 'Copyable report', advantage: 'A selectable preview shows exactly what goes to the clipboard, including two recent outcomes.',
+    tradeoff: 'Finding an individual step takes more reading, especially when several runs are retained.', cost: 'About ½–1 UI day',
+    copy: 'Copy all retained runs. Clear removes all local runs after confirmation.'
+  }
+};
+const images = [
+  ['Tomato toast', 'image/jpeg', 'image/jpeg', '242,668', '1200 × 800'],
+  ['Sesame noodles', 'image/webp', 'image/webp', '194,540', '960 × 640'],
+  ['Lentil soup', 'image/png', 'image/png', '396,720', '1024 × 768'],
+  ['Roasted pepper pasta', 'image/jpeg', 'image/webp', '318,442', '1600 × 1200']
+];
+const rejected = 'Invalid image container or dimensions';
+const previous = images.slice(0, 3).flatMap((image, index) => [
+  { label: `Upload image ${index + 1} of 21`, endpoint: 'R2 staging PUT', status: 200, image },
+  { label: `Complete image ${index + 1} of 21`, endpoint: 'images/complete', status: 200, image }
+]);
+const exampleRuns = [
+  { id: 'failed', outcome: 'Failed', date: 'Nov 20', start: '09:42:08', end: '09:42:21', trigger: 'Manual', steps: [
+    { label: 'Check local images', endpoint: 'Local', result: 'Passed' },
+    { label: 'Prepare batch 1 · images 1–16 of 21', endpoint: 'images/prepare', status: 200 },
+    ...previous,
+    { label: 'Upload image 4 of 21', endpoint: 'R2 staging PUT', status: 200, image: images[3] },
+    { label: 'Complete image 4 of 21', endpoint: 'images/complete', status: 400, error: rejected, image: images[3] }
+  ] },
+  { id: 'succeeded', outcome: 'Succeeded', date: 'Nov 19', start: '18:16:04', end: '18:16:11', trigger: 'Automatic', steps: [
+    { label: 'Check local images', endpoint: 'Local', result: 'Passed' },
+    { label: 'Prepare batch 1 · images 1–16 of 21', endpoint: 'images/prepare', status: 200 },
+    { label: 'Prepare batch 2 · images 17–21 of 21', endpoint: 'images/prepare', status: 200 },
+    { label: 'Reuse 21 verified images', endpoint: 'Local', result: 'Reused' },
+    { label: 'Commit metadata', endpoint: 'snapshots/commit', status: 200 },
+    { label: 'Publish latest snapshot', endpoint: 'snapshots/publish', status: 200 }
+  ] }
+];
+const params = new URLSearchParams(location.search);
+const choice = params.get('option');
+const example = params.get('example') === '1';
+let option = Object.hasOwn(options, choice) ? choice : 'dialog';
+let theme = params.get('theme') === 'dark' ? 'dark' : 'light';
+let size = params.get('size') || (matchMedia('(max-width: 620px)').matches ? 'phone' : 'wide');
+if (!['phone', 'wide'].includes(size)) size = 'wide';
+let runs = [...exampleRuns];
+let selected = params.get('run') === 'success' ? 'succeeded' : runs[0].id;
+let open = true;
+let includeNames = false;
+let priorSteps = false;
+let message = '';
+let prompt = '';
+let fallbackText = '';
+let returnFocus = '';
+const preview = document.querySelector('#preview');
+const controls = document.querySelector('#controls');
+const notes = document.querySelector('#notes');
+const current = () => runs.find(run => run.id === selected);
+const badge = run => `<span class="badge ${run.id}">${run.outcome}</span>`;
+const status = step => step.status ? `HTTP ${step.status}` : (step.result || 'No response');
+const timing = run => `${run.date}, ${run.start}–${run.end} · ${run.trigger}`;
+const button = (label, action, classes = '', disabled = false) => `<button type="button" class="btn ${classes}" data-action="${action}" ${disabled ? 'disabled' : ''}>${label}</button>`;
+const field = (label, value, classes = '') => `<div class="${classes}"><dt>${label}</dt><dd>${value}</dd></div>`;
+const sampleOnly = label => `<span class="btn filled" aria-hidden="true">${label}</span>`;
+
+function group(label, name, items, value) {
+  return `<div><span class="control-label" id="${name}-label">${label}</span><div class="group" role="group" aria-labelledby="${name}-label">${items.map(([id, text]) => `<button type="button" data-control="${name}" data-value="${id}" aria-pressed="${id === value}">${text}</button>`).join('')}</div></div>`;
+}
+function renderReview() {
+  controls.innerHTML = group('Option', 'option', Object.entries(options).map(([id, item]) => [id, item.label]), option)
+    + group('Theme', 'theme', [['light', 'Light'], ['dark', 'Dark']], theme)
+    + group('Viewport', 'size', [['phone', 'Phone'], ['wide', 'Wide']], size);
+  const item = options[option];
+  notes.innerHTML = `<h2>${item.label}${option === 'dialog' ? ' · Recommended' : ''}</h2>
+    <dl>${field('Advantage', item.advantage)}${field('Tradeoff', item.tradeoff)}${field('Build estimate', `${item.cost} after shared capture and storage work (2–3 days).`)}${field('Copy and clear', item.copy)}</dl>
+    <p>All options keep up to five runs and 128 KiB on this device. The previews use synthetic runs and MUI’s default palettes. The app currently uses light.</p>`;
+}
+function textReport(items) {
+  return ['Go Groceries · Sync diagnostics', 'Local times · synthetic sample', '', ...items.flatMap(run => {
+    const failure = run.steps.find(step => step.error);
+    return [`${run.outcome} · ${timing(run)}`, ...(failure ? [`${failure.label} | ${failure.endpoint} | ${status(failure)}`, failure.error] : ['Snapshot published'])];
+  }), '', 'Run details', ...items.flatMap(run => [
+    '', `${run.outcome} · ${timing(run)}`,
+    ...run.steps.map(step => [
+      `${step.label} | ${step.endpoint} | ${status(step)}`,
+      ...(step.error ? [`  ${step.error}`] : []),
+      ...(step.image ? [`  ${includeNames ? `${step.image[0]} | ` : ''}Declared ${step.image[1]} | Detected ${step.image[2]} | ${step.image[3]} bytes | ${step.image[4]} px`] : [])
+    ].join('\n'))
+  ])].join('\n');
+}
+function renderSteps(steps) {
+  return `<ol>${steps.map(step => `<li class="step"><span>${step.label}<code>${step.endpoint}</code></span><span>${status(step)}</span>${step.image ? `<small>${step.image[0]} · ${step.image[1]} declared · ${step.image[2]} detected · ${step.image[3]} B · ${step.image[4]} px</small>` : ''}</li>`).join('')}</ol>`;
+}
+function renderRun(run, showTitle = false) {
+  if (!run) return '<p class="empty" tabindex="-1" id="empty">No sync runs recorded yet.</p>';
+  const failure = run.steps.find(step => step.error);
+  const steps = failure ? run.steps.slice(0, run.steps.indexOf(failure)) : run.steps;
+  const content = failure ? `<div class="result">
+      <strong>${failure.label} · ${status(failure)}</strong><code>${failure.endpoint}</code>
+      <p>${failure.error}</p><dl class="image-meta">
+      ${field('Recipe', failure.image[0], 'owner')}${field('Declared type', failure.image[1])}${field('Detected locally', failure.image[2])}${field('Size', `${failure.image[3]} bytes`)}${field('Dimensions', `${failure.image[4]} px`)}</dl>
+    </div>` : '<div class="result success"><strong>Snapshot published</strong><p>21 verified cloud images reused.</p></div>';
+  return `${showTitle ? `<h4>${run.outcome === 'Failed' ? 'Failed run' : 'Successful run'}</h4>` : ''}
+    <p class="run-time">${timing(run)}</p>${content}
+    <details class="steps" ${priorSteps ? 'open' : ''}><summary>${failure ? 'Earlier steps' : 'Run steps'} (${steps.length})</summary>${renderSteps(steps)}</details>`;
+}
+function renderTools() {
+  return `<div class="tools"><label class="names"><input type="checkbox" id="include-names" ${includeNames ? 'checked' : ''} ${runs.length ? '' : 'disabled'}> Include recipe and meal names</label>
+    <div class="actions">${button('Clear log', 'clear', 'danger', !runs.length)}${button('Copy report', 'copy', 'outlined', !runs.length)}</div></div>
+    ${message ? `<p class="feedback" role="status" tabindex="-1" id="feedback">${message}</p>` : ''}`;
+}
+function renderInline() {
+  const latest = runs[0];
+  return `<section class="panel" aria-label="Last sync details">
+    <button type="button" class="panel-header" data-action="toggle" aria-expanded="${open}" aria-controls="diagnostics-panel">
+    <strong>Last sync details</strong>${latest ? badge(latest) : ''}<span aria-hidden="true">${open ? '⌃' : '⌄'}</span></button>
+    <div class="panel-body" id="diagnostics-panel" ${open ? '' : 'hidden'}>
+    ${runs.length ? `<label class="field-label" for="run-select">Recent run</label><select id="run-select">${runs.map(run => `<option value="${run.id}" ${run.id === selected ? 'selected' : ''}>${run.date}, ${run.start} · ${run.outcome}</option>`).join('')}</select>` : ''}
+    ${renderRun(current())}${renderTools()}<p class="small">On this device · up to 5 runs</p></div></section>`;
+}
+function renderReport() {
+  return `<section class="panel" aria-label="Sync report">
+    <button type="button" class="panel-header" data-action="toggle" aria-expanded="${open}" aria-controls="diagnostics-panel">
+      <strong>Sync report</strong><span class="small">${runs.length} ${runs.length === 1 ? 'run' : 'runs'}</span><span aria-hidden="true">${open ? '⌃' : '⌄'}</span></button>
+    <div class="panel-body" id="diagnostics-panel" ${open ? '' : 'hidden'}>
+      ${runs.length ? `<div class="report-summary">${runs.map(run => badge(run)).join('')}</div><label class="field-label" for="report-text">Report preview</label><textarea class="report-text" id="report-text" rows="11" readonly></textarea>` : '<p class="empty" tabindex="-1" id="empty">No sync runs recorded yet.</p>'}
+      ${renderTools()}<p class="small">On this device · up to 5 runs</p></div></section>`;
+}
+function renderLogDialog() {
+  return `<div class="overlay" data-action="outside">
+    <section class="dialog" role="dialog" aria-labelledby="log-title">
+      <header><div><h3 id="log-title" tabindex="-1">Sync log</h3><p class="small">On this device · up to 5 runs</p></div><button class="icon" type="button" data-action="toggle" aria-label="Close sync log">×</button></header>
+      ${runs.length ? `<div class="dialog-main"><section class="run-list" aria-label="Recent runs"><h4>Recent runs</h4>${runs.map(run => `<button type="button" data-run="${run.id}" aria-pressed="${run.id === selected}"><strong>${run.date}, ${run.start}</strong>${badge(run)}<span class="small">${run.trigger}</span></button>`).join('')}</section><section class="run-detail" aria-label="Selected run">${renderRun(current(), true)}</section></div>` : '<p class="empty" tabindex="-1" id="empty">No sync runs recorded yet.</p>'}
+      <footer>${renderTools()}</footer>
+    </section></div>`;
+}
+function renderPrompt() {
+  if (prompt === 'clear') return `<div class="sub-overlay"><section class="sub-dialog" role="dialog" aria-labelledby="prompt-title">
+    <h3 id="prompt-title">Clear sync log?</h3><p>This removes all sync diagnostics saved on this device.</p>
+    <div class="actions">${button('Cancel', 'cancel')}${button('Clear log', 'confirm', 'danger')}</div>
+    </section></div>`;
+  if (prompt === 'copy') return `<div class="sub-overlay"><section class="sub-dialog" role="dialog" aria-labelledby="prompt-title">
+    <h3 id="prompt-title">Copy report</h3><p>Clipboard access is unavailable. Select and copy the text.</p>
+    <textarea aria-label="Selectable report" id="fallback-text" class="report-text" readonly></textarea>
+    <div class="actions">${button('Close', 'cancel')}</div>
+    </section></div>`;
+  return '';
+}
+function render() {
+  preview.dataset.theme = theme;
+  preview.dataset.size = size;
+  const modal = option === 'dialog' && open;
+  preview.innerHTML = `<div ${modal || prompt ? 'inert' : ''}>
+    <header class="bar"><span class="brand">Go Groceries</span><div class="bar-right"><div class="shop-links"><span>Meals</span><span>Lists</span><span>Stores</span><span>Restaurants</span></div><span class="gear" aria-hidden="true">⚙</span></div></header>
+    <div class="settings"><h2>Syncing</h2><h3>Sync To</h3>
+      <div class="sync-actions" aria-hidden="true">${sampleOnly('Sync Now')}<label><input type="checkbox" tabindex="-1" disabled> Set up automatic syncs</label></div>
+      <div class="original-share"><p>V2 sync location is set up. Share links are read-only and expire in 7 days.</p><p>Writer collection URL: /v2/collections/sample-pantry</p>${sampleOnly('Share URL')}</div>
+      ${option === 'inline' ? renderInline() : option === 'report' ? renderReport() : `<div class="log-entry">${button('Sync log', 'toggle', 'outlined')}${runs.length ? badge(runs[0]) : ''}</div>`}
+      <section class="sync-from" aria-hidden="true"><h3>Sync From</h3><div class="original-fields"><span>Alias (Optional)</span><span>Sync From URL</span></div>${sampleOnly('Save New Sync Location')}</section>
+    </div></div>${modal ? `<div ${prompt ? 'inert' : ''}>${renderLogDialog()}</div>` : ''}${renderPrompt()}`;
+  const report = document.querySelector('#report-text');
+  if (report) report.value = textReport(runs);
+  const fallback = document.querySelector('#fallback-text');
+  if (fallback) fallback.value = fallbackText;
+  preview.querySelector('details.steps')?.addEventListener('toggle', event => { priorSteps = event.target.open; });
+}
+function rememberScroll() {
+  return preview.querySelector('.dialog-main')?.scrollTop || 0;
+}
+function renderAt(scroll) {
+  render();
+  const main = preview.querySelector('.dialog-main');
+  if (main) main.scrollTop = scroll;
+}
+function chooseRun(id) {
+  selected = id;
+  priorSteps = false;
+  message = '';
+}
+controls.addEventListener('click', event => {
+  const control = event.target.closest('[data-control]');
+  if (!control) return;
+  const { control: key, value } = control.dataset;
+  if (key === 'option' && value !== option) {
+    option = value;
+    open = true;
+    chooseRun(runs[0]?.id);
+  }
+  if (key === 'theme') theme = value;
+  if (key === 'size') size = value;
+  renderReview();
+  render();
+  controls.querySelector(`[data-control="${key}"][data-value="${value}"]`)?.focus();
+});
+preview.addEventListener('change', event => {
+  if (event.target.id === 'include-names') {
+    includeNames = event.target.checked;
+    const report = document.querySelector('#report-text');
+    if (report) report.value = textReport(runs);
+  }
+  if (event.target.id === 'run-select') {
+    chooseRun(event.target.value);
+    render();
+    document.querySelector('#run-select')?.focus();
+  }
+});
+function restoreAction() {
+  preview.querySelector(returnFocus)?.focus();
+  returnFocus = '';
+}
+preview.addEventListener('click', async event => {
+  const run = event.target.closest('[data-run]');
+  if (run) {
+    chooseRun(run.dataset.run);
+    renderAt(0);
+    preview.querySelector(`[data-run="${selected}"]`)?.focus();
+    return;
+  }
+  const target = event.target.closest('[data-action]');
+  const action = target?.dataset.action;
+  const scroll = rememberScroll();
+  if (action === 'toggle' || (action === 'outside' && event.target === target)) {
+    open = !open;
+    renderAt(0);
+    preview.querySelector(open && option === 'dialog' ? '#log-title' : '[data-action="toggle"]')?.focus();
+  }
+  if (action === 'clear') {
+    prompt = 'clear';
+    returnFocus = '[data-action="clear"]';
+    renderAt(scroll);
+    preview.querySelector('[data-action="cancel"]').focus();
+  }
+  if (action === 'cancel') {
+    prompt = '';
+    renderAt(scroll);
+    restoreAction();
+  }
+  if (action === 'confirm') {
+    runs = [];
+    chooseRun(undefined);
+    includeNames = false;
+    prompt = '';
+    renderAt(0);
+    preview.querySelector('#empty')?.focus();
+  }
+  if (action === 'copy') {
+    const report = textReport(option === 'report' ? runs : [current()]);
+    try {
+      await navigator.clipboard.writeText(report);
+      message = 'Report copied';
+      renderAt(scroll);
+      preview.querySelector('#feedback')?.focus();
+    } catch {
+      fallbackText = report;
+      prompt = 'copy';
+      returnFocus = '[data-action="copy"]';
+      renderAt(scroll);
+      document.querySelector('#fallback-text')?.focus();
+      document.querySelector('#fallback-text')?.select();
+    }
+  }
+});
+preview.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  if (prompt) {
+    const scroll = rememberScroll();
+    prompt = '';
+    renderAt(scroll);
+    restoreAction();
+  } else if (option === 'dialog' && open) {
+    open = false;
+    renderAt(0);
+    preview.querySelector('[data-action="toggle"]')?.focus();
+  }
+});
+document.body.dataset.example = String(example);
+document.querySelector('#review-controls').hidden = example;
+renderReview();
+render();
+</script>
+</body>
+</html>
