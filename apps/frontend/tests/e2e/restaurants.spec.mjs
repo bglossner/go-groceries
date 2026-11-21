@@ -696,3 +696,57 @@ for (const [suffix, width] of [
     await expect(page.getByLabel('Minimum person score', { exact: true })).not.toBeChecked();
     await expect(page.getByLabel('Minimum person score', { exact: true })).toBeDisabled();
   });
+
+
+for (const [suffix, width] of [['phone', 390], ['wide', 1180]])
+  test(`new restaurant location fallback ${suffix}: editable defaults, existing rows unchanged, no coordinates`, async ({ page, context }) => {
+    await guard(context);
+    await page.setViewportSize({ width, height: 844 });
+    // A granted browser location is still unusable without an approved place lookup.
+    if (suffix === 'phone') await context.grantPermissions(['geolocation']);
+    await page.addInitScript(() => {
+      window.__restaurantLocationRequests = 0;
+      Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+        getCurrentPosition() { window.__restaurantLocationRequests++; throw new Error('No approved place lookup'); },
+        watchPosition() { window.__restaurantLocationRequests++; throw new Error('No approved place lookup'); },
+      } });
+    });
+    await page.goto('/restaurants');
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await expect(page.getByLabel('Country', { exact: true })).toHaveValue('USA');
+    await expect(page.getByLabel('State / region', { exact: true })).toHaveValue('California');
+    await expect(page.getByLabel('City', { exact: true })).toHaveValue('');
+    await expect(page.getByLabel('Latitude', { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('Longitude', { exact: true })).toHaveCount(0);
+    await page.getByRole('textbox', { name: 'Restaurant name', exact: true }).fill('Default location kitchen');
+    await shot(page, `restaurant-defaults-${suffix}`);
+    await page.getByRole('button', { name: 'Save restaurant', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Default location kitchen', exact: true })).toBeVisible();
+    let stored = (await state(page)).tables.restaurants[0];
+    expect(stored).toMatchObject({ country: 'USA', region: 'California', countryKey: 'usa', regionKey: 'california', cityKey: '' });
+    expect(stored.city).toBeUndefined();
+    expect(stored).not.toHaveProperty('latitude');
+    expect(stored).not.toHaveProperty('longitude');
+    await page.getByRole('tab', { name: 'About', exact: true }).click();
+    await page.getByRole('button', { name: 'Edit restaurant', exact: true }).click();
+    await page.getByLabel('Country', { exact: true }).fill('Canada');
+    await page.getByLabel('State / region', { exact: true }).fill('Ontario');
+    await page.getByLabel('City', { exact: true }).fill('Toronto');
+    await page.getByRole('button', { name: 'Save restaurant', exact: true }).click();
+    await expect(page.getByText('Canada → Ontario → Toronto', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Edit restaurant', exact: true }).click();
+    await expect(page.getByLabel('Country', { exact: true })).toHaveValue('Canada');
+    await expect(page.getByLabel('State / region', { exact: true })).toHaveValue('Ontario');
+    await expect(page.getByLabel('City', { exact: true })).toHaveValue('Toronto');
+    await page.getByRole('button', { name: 'Discard', exact: true }).click();
+    const saved = (await state(page)).tables.restaurants[0];
+    await page.getByRole('link', { name: 'Back to Restaurants', exact: true }).click();
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await expect(page.getByLabel('Country', { exact: true })).toHaveValue('USA');
+    await expect(page.getByLabel('State / region', { exact: true })).toHaveValue('California');
+    await expect(page.getByLabel('City', { exact: true })).toHaveValue('');
+    await page.getByRole('button', { name: 'Discard', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect((await state(page)).tables.restaurants).toEqual([saved]);
+    expect(await page.evaluate(() => window.__restaurantLocationRequests)).toBe(0);
+  });

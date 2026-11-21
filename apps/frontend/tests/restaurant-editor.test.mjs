@@ -224,3 +224,44 @@ test('review R11: omitted and explicit Unknown categories form one group', async
     [...document.querySelectorAll('p')].filter((el) => el.textContent === 'Unknown')
   ).toHaveLength(1);
 });
+
+
+test('new restaurant location defaults are editable draft values and discarded without creating rows', async () => {
+  await mount({}, Restaurants);
+  await vi.waitFor(() => expect(button('Create')).toBeTruthy());
+  await click(button('Create'));
+  expect(field('Country').value).toBe('USA');
+  expect(field('State / region').value).toBe('California');
+  expect(field('City').value).toBe('');
+  expect(await db.restaurants.count()).toBe(0);
+  await click(button('Discard'));
+  expect(document.querySelector('[role=dialog]')).toBeNull();
+  expect(await db.restaurants.count()).toBe(0);
+  await click(button('Create'));
+  await input(field('Restaurant name'), 'Editable defaults');
+  await input(field('Country'), 'Canada');
+  await input(field('State / region'), 'Ontario');
+  await input(field('City'), 'Toronto');
+  await click(button('Save restaurant'));
+  await vi.waitFor(async () => expect(await db.restaurants.count()).toBe(1));
+  const saved = (await db.restaurants.toArray())[0];
+  expect(saved).toMatchObject({country: 'Canada', region: 'Ontario', city: 'Toronto', countryKey: 'canada', regionKey: 'ontario', cityKey: 'toronto'});
+  expect(saved).not.toHaveProperty('latitude');
+  expect(saved).not.toHaveProperty('longitude');
+});
+
+test.each([{}, { country: 'Canada', region: 'Ontario', city: 'Toronto' }])('editing an existing restaurant never supplies new-restaurant defaults (%j)', async (place) => {
+  const rid = await saveRestaurant({name: 'Existing place', tags: [], notes: '', isPinned: false,
+    countryKey: '', regionKey: '', cityKey: '', createdAt: time, updatedAt: time, ...place});
+  const before = await db.restaurants.get(rid);
+  await mount({ restaurantId: rid }, Restaurants);
+  await vi.waitFor(() => expect(button('About')).toBeTruthy());
+  await click(button('About'));
+  await click(button('Edit restaurant'));
+  expect(field('Country').value).toBe(place.country ?? '');
+  expect(field('State / region').value).toBe(place.region ?? '');
+  expect(field('City').value).toBe(place.city ?? '');
+  await click(button('Discard'));
+  expect(document.querySelector('[role=dialog]')).toBeNull();
+  expect(await db.restaurants.get(rid)).toEqual(before);
+});
