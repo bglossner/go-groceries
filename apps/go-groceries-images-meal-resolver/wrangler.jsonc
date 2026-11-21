@@ -12,7 +12,8 @@
 	},
   "workers_dev": true,
 	"vars": {
-    "ENABLE_PASS": "true"
+    "ENABLE_PASS": "true",
+    "CORS_ALLOWED_ORIGINS": "http://localhost:5173,https://go-groceries.s3.us-east-1.amazonaws.com,https://go-groceries-test.s3.us-east-1.amazonaws.com"
 	}
 	/**
 	 * Smart Placement
