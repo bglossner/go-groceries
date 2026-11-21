@@ -13,8 +13,6 @@ export type Restaurant = {
   regionKey: string;
   cityKey: string;
   address?: string;
-  latitude?: number;
-  longitude?: number;
   googleMapsUrl?: string;
   menuImages?: OwnedImage[];
   createdAt: string;

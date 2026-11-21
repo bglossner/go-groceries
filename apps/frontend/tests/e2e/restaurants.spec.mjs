@@ -49,7 +49,20 @@ async function shot(page, name) {
         .map((a) => a.finished.catch(() => {}))
     );
   });
-  await page.screenshot({ path: join(process.env.REGRESSION_ARTIFACT_DIR, name + '.png') });
+  await page.screenshot({
+    path: join(process.env.REGRESSION_ARTIFACT_DIR, name + '.png'),
+  });
+  if (name.startsWith('restaurant-editor-')) {
+    await page.getByLabel('Google Maps link', { exact: true }).evaluate((field) =>
+      field.scrollIntoView({ block: 'center', behavior: 'instant' })
+    );
+    await page.screenshot({
+      path: join(
+        process.env.REGRESSION_ARTIFACT_DIR,
+        name.replace('restaurant-editor', 'restaurant-editor-location') + '.png'
+      ),
+    });
+  }
   if (name.startsWith('dish-details-')) {
     const field = name.includes('-on-')
       ? page.getByLabel('Price', { exact: true })
@@ -70,7 +83,9 @@ async function choose(page, label, text) {
   await page.getByRole('option', { name: text, exact: true }).click();
 }
 async function advanced(page, enabled) {
-  const toggle = page.getByLabel('Show advanced restaurant fields', { exact: true });
+  const toggle = page.getByLabel('Show advanced restaurant fields', {
+    exact: true,
+  });
   if ((await toggle.isChecked()) !== enabled) await toggle.click();
   if (enabled) await expect(toggle).toBeChecked();
   else await expect(toggle).not.toBeChecked();
@@ -113,16 +128,16 @@ async function create(page, suffix) {
   await page.getByLabel('State / region', { exact: true }).fill('England');
   await page.getByLabel('City', { exact: true }).fill('London');
   await page.getByLabel('Address', { exact: true }).fill('18 Maple Lane, London');
-  await page.getByLabel('Latitude', { exact: true }).fill('51.5074');
-  await page.getByLabel('Longitude', { exact: true }).fill('-0.1278');
   await page
     .getByLabel('Google Maps link', { exact: true })
-    .fill('https://maps.google.com/?q=51.5074,-0.1278');
+    .fill('https://maps.google.com/?q=London');
   await page.getByRole('combobox', { name: 'Restaurant tags', exact: true }).fill('Japanese');
   await page.getByRole('combobox', { name: 'Restaurant tags', exact: true }).press('ArrowDown');
   await page.getByRole('combobox', { name: 'Restaurant tags', exact: true }).press('Enter');
   await page.getByRole('combobox', { name: 'Restaurant tags', exact: true }).fill('Vegan options');
   await page.getByRole('option', { name: 'Vegan options', exact: true }).click();
+  await expect(page.getByLabel('Latitude', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Longitude', { exact: true })).toHaveCount(0);
   await shot(page, `restaurant-editor-${suffix}`);
   await page.getByRole('button', { name: 'Save restaurant', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Kumo Noodle House', exact: true })).toBeVisible();
@@ -137,9 +152,11 @@ async function create(page, suffix) {
   await choose(page, 'Category', 'Main');
   await page.getByLabel('Vegan', { exact: true }).check();
   await page.getByLabel('Last ordered', { exact: true }).fill('2020-11-12');
-  await page
-    .getByLabel('Upload dish photos', { exact: true })
-    .setInputFiles({ name: 'synthetic.png', mimeType: 'image/png', buffer: png });
+  await page.getByLabel('Upload dish photos', { exact: true }).setInputFiles({
+    name: 'synthetic.png',
+    mimeType: 'image/png',
+    buffer: png,
+  });
   await expect(page.getByAltText('Miso mushroom ramen photo')).toBeVisible();
   await shot(page, `dish-details-off-${suffix}`);
   await page.getByRole('tab', { name: 'Opinions', exact: true }).click();
@@ -263,7 +280,9 @@ for (const [suffix, width] of [
     await page.getByRole('button', { name: 'Export Groceries', exact: true }).click();
     const file = join(process.env.REGRESSION_ARTIFACT_DIR, `restaurant-backup-${suffix}.json`);
     await (await downloadPromise).saveAs(file);
-    const fresh = await browser.newContext({ viewport: { width, height: 844 } });
+    const fresh = await browser.newContext({
+      viewport: { width, height: 844 },
+    });
     await guard(fresh);
     try {
       const imported = await fresh.newPage();
@@ -273,7 +292,9 @@ for (const [suffix, width] of [
       await imported.getByRole('button', { name: 'Yes', exact: true }).click();
       await (await chooser).setFiles(file);
       await expect(
-        imported.getByText('Restaurants: 0 local → 1 imported', { exact: false })
+        imported.getByText('Restaurants: 0 local → 1 imported', {
+          exact: false,
+        })
       ).toBeVisible();
       await imported.getByRole('button', { name: 'Confirm replacement', exact: true }).click();
       await expect(imported.getByText('Import Succeeded!', { exact: true })).toBeVisible();
@@ -293,7 +314,9 @@ for (const [suffix, width] of [
       await imported.getByRole('button', { name: 'Yes', exact: true }).click();
       await (await oldChooser).setFiles(oldFile);
       await expect(
-        imported.getByText('Restaurants: 1 local → 0 imported', { exact: false })
+        imported.getByText('Restaurants: 1 local → 0 imported', {
+          exact: false,
+        })
       ).toBeVisible();
       await shot(imported, `restaurant-import-replacement-${suffix}`);
       await imported.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -309,7 +332,9 @@ for (const [suffix, width] of [
       const { db } = await import('/src/db/db.ts');
       return (await db.syncs.where('type').equals('to').first()).url;
     });
-    const downContext = await browser.newContext({ viewport: { width, height: 844 } });
+    const downContext = await browser.newContext({
+      viewport: { width, height: 844 },
+    });
     await guard(downContext);
     try {
       const down = await downContext.newPage();
@@ -395,8 +420,20 @@ test('restaurant stress timings with 500 restaurants, 5000 dishes, 10000 ratings
             }))
           );
           await db.people.bulkPut([
-            { id: 1, name: 'Ben', normalizedName: 'ben', status: 'active', ...dates },
-            { id: 2, name: 'Sarah', normalizedName: 'sarah', status: 'active', ...dates },
+            {
+              id: 1,
+              name: 'Ben',
+              normalizedName: 'ben',
+              status: 'active',
+              ...dates,
+            },
+            {
+              id: 2,
+              name: 'Sarah',
+              normalizedName: 'sarah',
+              status: 'active',
+              ...dates,
+            },
           ]);
           await db.restaurantItemRatings.bulkPut(
             Array.from({ length: 10000 }, (_, i) => ({
@@ -472,9 +509,10 @@ test('restaurant visual regression: drawer fits a phone viewport', async ({ page
   await page.setViewportSize({ width: 360, height: 844 });
   await page.goto('/restaurants');
   await page.getByRole('button', { name: 'Filters', exact: true }).click();
-  const rect = await page
-    .locator('.MuiDrawer-paper')
-    .evaluate((el) => ({ width: el.getBoundingClientRect().width, viewport: innerWidth }));
+  const rect = await page.locator('.MuiDrawer-paper').evaluate((el) => ({
+    width: el.getBoundingClientRect().width,
+    viewport: innerWidth,
+  }));
   expect(rect.width).toBeLessThanOrEqual(rect.viewport + 0.5);
 });
 test('restaurant visual regression: editor action bar stays at the viewport bottom', async ({
@@ -497,3 +535,164 @@ test('restaurant visual regression: editor action bar stays at the viewport bott
     }));
   expect(Math.abs(rect.bottom - rect.viewport)).toBeLessThanOrEqual(1);
 });
+
+for (const [suffix, width] of [
+  ['phone', 390],
+  ['wide', 1180],
+])
+  test(`removable applied filters ${suffix}: each chip, dependent resets and drawer state`, async ({
+    page,
+    context,
+  }) => {
+    await guard(context);
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/restaurants');
+    await page.evaluate(async () => {
+      const { saveRestaurant, saveDish, savePerson } = await import('/src/db/restaurants.ts');
+      const time = '2020-01-01T00:00:00.000Z';
+      const dates = { createdAt: time, updatedAt: time };
+      const rid = await saveRestaurant(
+        {
+          name: 'Synthetic kitchen',
+          tags: [],
+          notes: '',
+          isPinned: false,
+          country: 'USA',
+          region: 'California',
+          city: 'Oakland',
+          countryKey: 'usa',
+          regionKey: 'california',
+          cityKey: 'oakland',
+          ...dates,
+        },
+        ['Japanese', 'Vegan options']
+      );
+      const personId = await savePerson('Alex');
+      await saveDish(
+        {
+          restaurantId: rid,
+          name: 'Ramen',
+          description: '',
+          notes: '',
+          images: [],
+          dietaryFlags: [],
+          ...dates,
+        },
+        [{ itemId: 1, personId, score: 9, ...dates }]
+      );
+    });
+    await expect(page.getByRole('link', { name: 'Synthetic kitchen', exact: true })).toBeVisible();
+    await page.getByLabel('Find restaurant, dish or place', { exact: true }).fill('Ramen');
+    await choose(page, 'Sort', 'Best rated');
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
+    for (const tag of ['Japanese', 'Vegan options']) {
+      await page.getByLabel('Tags · match all', { exact: true }).fill(tag);
+      await page.getByRole('option', { name: tag, exact: true }).click();
+    }
+    await choose(page, 'Country', 'USA');
+    await choose(page, 'State / region', 'California');
+    await choose(page, 'City', 'Oakland');
+    await page.locator('.MuiDrawer-paper').getByLabel('Rating basis', { exact: true }).click();
+    await page.getByRole('option', { name: 'Alex', exact: true }).click();
+    await page.getByLabel('Minimum person score', { exact: true }).check();
+    await page.getByLabel('Minimum score / 10', { exact: true }).fill('8.5');
+    await page.getByRole('button', { name: 'Show results', exact: true }).click();
+    const labels = [
+      'Search: Ramen',
+      'Tag: Japanese',
+      'Tag: Vegan options',
+      'Country: USA',
+      'State / region: California',
+      'City: Oakland',
+      'Person: Alex',
+      'Minimum score: 8.5/10',
+      'Sort: Best rated',
+    ];
+    // Preserve the pre-assertion screen so a failing-first run proves the reported state.
+    await shot(page, `filters-applied-${suffix}`);
+    console.log(
+      JSON.stringify({
+        viewport: suffix,
+        appliedTypes: labels,
+        visibleDeleteControls: await page.locator('[aria-label^="Remove filter:"]').count(),
+      })
+    );
+    const chips = page.getByRole('group', {
+      name: 'Applied filters',
+      exact: true,
+    });
+    const remove = async (label) => {
+      const chip = chips.getByRole('button', {
+        name: `Remove filter: ${label}`,
+        exact: true,
+      });
+      // MUI onDelete supports keyboard removal as well as the delete icon.
+      if (label.startsWith('Search:')) {
+        await chip.focus();
+        await chip.press('Delete');
+      } else await chip.locator('.MuiChip-deleteIcon').click();
+      await expect(chip).toHaveCount(0);
+    };
+    for (const label of labels)
+      await expect(
+        chips.getByRole('button', {
+          name: `Remove filter: ${label}`,
+          exact: true,
+        })
+      ).toBeVisible();
+    await remove('Search: Ramen');
+    await expect(page.getByLabel('Find restaurant, dish or place', { exact: true })).toHaveValue(
+      ''
+    );
+    await remove('Tag: Japanese');
+    await expect(chips.getByText('Tag: Vegan options', { exact: true })).toBeVisible();
+    await remove('City: Oakland');
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
+    await choose(page, 'City', 'Oakland');
+    await page.getByRole('button', { name: 'Show results', exact: true }).click();
+    await remove('State / region: California');
+    await expect(chips.getByText('City: Oakland', { exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
+    await expect(page.getByLabel('Tags · match all', { exact: true })).toHaveValue('');
+    await expect(
+      page.locator('.MuiDrawer-paper').getByText('Vegan options', { exact: true })
+    ).toBeVisible();
+    await expect(page.getByLabel('Country', { exact: true })).toHaveText('USA');
+    await expect(page.getByLabel('State / region', { exact: true })).toHaveText('All');
+    await choose(page, 'State / region', 'California');
+    await choose(page, 'City', 'Oakland');
+    await page.getByRole('button', { name: 'Show results', exact: true }).click();
+    await remove('Country: USA');
+    await expect(chips.getByText('State / region: California', { exact: true })).toHaveCount(0);
+    await expect(chips.getByText('City: Oakland', { exact: true })).toHaveCount(0);
+    await shot(page, `filters-removed-${suffix}`);
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
+    await expect(page.getByLabel('Country', { exact: true })).toHaveText('All');
+    await expect(page.getByLabel('State / region', { exact: true })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+    await expect(page.getByLabel('City', { exact: true })).toHaveAttribute('aria-disabled', 'true');
+    await page.getByRole('button', { name: 'Show results', exact: true }).click();
+    await remove('Minimum score: 8.5/10');
+    await expect(chips.getByText('Person: Alex', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
+    await expect(page.getByLabel('Minimum person score', { exact: true })).not.toBeChecked();
+    await page.getByLabel('Minimum person score', { exact: true }).check();
+    await page.getByRole('button', { name: 'Show results', exact: true }).click();
+    await remove('Person: Alex');
+    await expect(chips.getByText('Minimum score: 8.5/10', { exact: true })).toHaveCount(0);
+    await choose(page, 'Rating basis', 'Alex');
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
+    await expect(page.getByLabel('Minimum person score', { exact: true })).not.toBeChecked();
+    await page.getByRole('button', { name: 'Show results', exact: true }).click();
+    await remove('Sort: Best rated');
+    await expect(page.getByLabel('Sort', { exact: true })).toHaveText('Name');
+    await page.getByRole('button', { name: 'Clear all', exact: true }).click();
+    await expect(chips).toHaveCount(0);
+    await expect(page.getByLabel('Rating basis', { exact: true })).toHaveText('Household');
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
+    await expect(page.locator('.MuiDrawer-paper .MuiAutocomplete-tag')).toHaveCount(0);
+    await expect(page.getByLabel('Minimum person score', { exact: true })).not.toBeChecked();
+    await expect(page.getByLabel('Minimum person score', { exact: true })).toBeDisabled();
+  });

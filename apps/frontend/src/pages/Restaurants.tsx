@@ -1,4 +1,3 @@
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useBlocker, useNavigate } from '@tanstack/react-router';
 import {
@@ -71,7 +70,11 @@ import { IMAGE_LIMITS, IMAGE_MIME_TYPES, type ImageMimeType } from '../shareable
 import { useToast } from '../hooks/useToast';
 import StoredImage from '../components/StoredImage';
 
-const fieldsGrid = { display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 };
+const fieldsGrid = {
+  display: 'grid',
+  gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+  gap: 2,
+};
 const multiline = { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } as const;
 const emptyFilters: RestaurantFilters = {
   search: '',
@@ -153,10 +156,12 @@ function Basis({
         fullWidth
         size="small"
         label="Rating basis"
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)}
+        value={value ?? 'household'}
+        onChange={(e) =>
+          onChange(e.target.value === 'household' ? undefined : Number(e.target.value))
+        }
       >
-        <MenuItem value="">Household</MenuItem>
+        <MenuItem value="household">Household</MenuItem>
         {people
           .filter((p) => p.status === 'active' || includeArchived || p.id === value)
           .map((p) => (
@@ -442,23 +447,10 @@ function RestaurantEditor({
             />
           ))}
           {text('address', 'Address', 2)}
-          {(['latitude', 'longitude'] as const).map((field) => (
-            <TextField
-              key={field}
-              label={titleCase(field)}
-              type="number"
-              value={draft[field] ?? ''}
-              onChange={(e) =>
-                change(field, e.target.value === '' ? undefined : Number(e.target.value))
-              }
-              slotProps={{ htmlInput: { step: 'any' } }}
-            />
-          ))}
           {text('googleMapsUrl', 'Google Maps link')}
         </Box>
         <Typography variant="caption">
-          Country changes retain the draft state and city for review. Both coordinates are required
-          together; no map lookup runs.
+          Country changes retain the draft state and city for review. No map lookup runs.
         </Typography>
       </Stack>
       <EditorActions
@@ -748,7 +740,13 @@ export function DishEditor({
             {advanced && (
               <>
                 <Typography>Additional ordering details</Typography>
-                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 1,
+                  }}
+                >
                   {text('priceAmount', 'Price')}
                   {text('currency', 'Currency')}
                 </Box>
@@ -781,7 +779,13 @@ export function DishEditor({
           {ratings.map((r, index) => (
             <Paper key={index} variant="outlined" sx={{ p: 1.5 }}>
               <Stack gap={1}>
-                <Box sx={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 1 }}>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: '2fr 1fr',
+                    gap: 1,
+                  }}
+                >
                   <TextField
                     select
                     fullWidth
@@ -1036,9 +1040,10 @@ export default function Restaurants({ restaurantId }: { restaurantId?: number })
   const [order, setOrder] = useState('category');
   const [basis, setBasis] = useState<number>();
   const [peopleOpen, setPeopleOpen] = useState(false);
-  const [confirm, setConfirm] = useState<{ title: string; action: () => Promise<void> } | null>(
-    null
-  );
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    action: () => Promise<void>;
+  } | null>(null);
   const [enlarged, setEnlarged] = useState<OwnedImage | null>(null);
   useEffect(() => {
     void seedRestaurantTags().catch((e) => showErrorToast(errorText(e)));
@@ -1074,11 +1079,24 @@ export default function Restaurants({ restaurantId }: { restaurantId?: number })
       personId,
       threshold: personId ? (f.personId ? f.threshold : false) : false,
     }));
+  const setLocation = (field: 'country' | 'region' | 'city', value?: string) =>
+    setFilters((f) => ({
+      ...f,
+      [field]: value,
+      ...(field === 'country'
+        ? { region: undefined, city: undefined }
+        : field === 'region'
+          ? { city: undefined }
+          : {}),
+    }));
   const clear = () => setFilters({ ...emptyFilters });
   const finishRestaurant = async (id?: number) => {
     setRestaurantDraft(null);
     if (id && !restaurantId)
-      await navigate({ to: '/restaurant/$restaurantId', params: { restaurantId: String(id) } });
+      await navigate({
+        to: '/restaurant/$restaurantId',
+        params: { restaurantId: String(id) },
+      });
   };
   if (restaurantDraft)
     return (
@@ -1149,15 +1167,7 @@ export default function Restaurants({ restaurantId }: { restaurantId?: number })
         }
         onChange={(e) => {
           const value = e.target.value === 'all' ? undefined : e.target.value.slice(4);
-          setFilters((f) => ({
-            ...f,
-            [field]: value,
-            ...(field === 'country'
-              ? { region: undefined, city: undefined }
-              : field === 'region'
-                ? { city: undefined }
-                : {}),
-          }));
+          setLocation(field, value);
         }}
       >
         <MenuItem value="all">All</MenuItem>
@@ -1171,6 +1181,55 @@ export default function Restaurants({ restaurantId }: { restaurantId?: number })
       </TextField>
     );
   };
+  const applied: { label: string; remove: () => void }[] = [];
+  if (filters.search.trim())
+    applied.push({
+      label: `Search: ${filters.search}`,
+      remove: () => setFilters((f) => ({ ...f, search: '' })),
+    });
+  for (const id of filters.tags)
+    applied.push({
+      label: `Tag: ${data.restaurantTags.find((t) => t.id === id)?.name ?? id}`,
+      remove: () => setFilters((f) => ({ ...f, tags: f.tags.filter((t) => t !== id) })),
+    });
+  for (const field of ['country', 'region', 'city'] as const) {
+    const key = filters[field];
+    if (key === undefined) continue;
+    const row = data.restaurants.find(
+      (r) =>
+        r[`${field}Key`] === key &&
+        (field === 'country' || r.countryKey === filters.country) &&
+        (field !== 'city' || r.regionKey === filters.region)
+    );
+    const label = field === 'region' ? 'State / region' : titleCase(field);
+    const value =
+      row?.[field] ??
+      (key ||
+        (field === 'country'
+          ? 'Unknown country'
+          : field === 'region'
+            ? 'No state/region'
+            : 'Unknown city'));
+    applied.push({
+      label: `${label}: ${value}`,
+      remove: () => setLocation(field),
+    });
+  }
+  if (filters.personId !== undefined)
+    applied.push({
+      label: `Person: ${data.people.find((p) => p.id === filters.personId)?.name ?? filters.personId}`,
+      remove: () => setPerson(),
+    });
+  if (filters.personId !== undefined && filters.threshold)
+    applied.push({
+      label: `Minimum score: ${filters.minimum}/10`,
+      remove: () => setFilters((f) => ({ ...f, threshold: false })),
+    });
+  if (filters.sort !== 'name')
+    applied.push({
+      label: 'Sort: Best rated',
+      remove: () => setFilters((f) => ({ ...f, sort: 'name' })),
+    });
   return (
     <Box sx={{ textAlign: 'left', pb: 3 }}>
       {restaurantId !== undefined && !restaurant ? (
@@ -1197,24 +1256,6 @@ export default function Restaurants({ restaurantId }: { restaurantId?: number })
           </Typography>
           {restaurant.address && <Typography sx={multiline}>{restaurant.address}</Typography>}
           <Stack direction="row" alignItems="center" flexWrap="wrap" gap={1}>
-            {restaurant.latitude !== undefined && (
-              <>
-                <Typography>
-                  {restaurant.latitude}, {restaurant.longitude}
-                </Typography>
-                <Button
-                  aria-label="Copy coordinates"
-                  startIcon={<ContentCopyIcon />}
-                  onClick={() =>
-                    void navigator.clipboard
-                      .writeText(`${restaurant.latitude}, ${restaurant.longitude}`)
-                      .catch(() => showErrorToast('Coordinates could not be copied'))
-                  }
-                >
-                  Copy
-                </Button>
-              </>
-            )}
             {restaurant.googleMapsUrl && (
               <Button
                 component="a"
@@ -1282,7 +1323,14 @@ export default function Restaurants({ restaurantId }: { restaurantId?: number })
                   Add dish
                 </Button>
               </Stack>
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 2 }}>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 1,
+                  mb: 2,
+                }}
+              >
                 <TextField
                   size="small"
                   select
@@ -1460,7 +1508,10 @@ export default function Restaurants({ restaurantId }: { restaurantId?: number })
               label="Sort"
               value={filters.sort}
               onChange={(e) =>
-                setFilters((f) => ({ ...f, sort: e.target.value as RestaurantFilters['sort'] }))
+                setFilters((f) => ({
+                  ...f,
+                  sort: e.target.value as RestaurantFilters['sort'],
+                }))
               }
             >
               <MenuItem value="name">Name</MenuItem>
@@ -1472,9 +1523,32 @@ export default function Restaurants({ restaurantId }: { restaurantId?: number })
             <Button variant="outlined" onClick={() => setDrawer(true)}>
               Filters
             </Button>
-            <Button onClick={clear}>Clear filters</Button>
+            <Button onClick={clear}>Clear all</Button>
           </Stack>
-          <Tags tags={data.restaurantTags} ids={filters.tags} />
+          {!!applied.length && (
+            <Stack
+              role="group"
+              aria-label="Applied filters"
+              direction="row"
+              flexWrap="wrap"
+              gap={1}
+              sx={{ mb: 1.5 }}
+            >
+              {applied.map(({ label, remove }) => (
+                <Chip
+                  key={label}
+                  size="small"
+                  label={label}
+                  aria-label={`Remove filter: ${label}`}
+                  onDelete={remove}
+                  sx={{
+                    maxWidth: '100%',
+                    '& .MuiChip-label': { overflow: 'hidden' },
+                  }}
+                />
+              ))}
+            </Stack>
+          )}
           <Typography variant="caption">
             {selected.length} restaurants · matching pins first
           </Typography>
@@ -1547,7 +1621,10 @@ export default function Restaurants({ restaurantId }: { restaurantId?: number })
                   groupBy={(t) => titleCase(t.group)}
                   value={data.restaurantTags.filter((t) => filters.tags.includes(t.id!))}
                   onChange={(_, values) =>
-                    setFilters((f) => ({ ...f, tags: values.map((t) => t.id!) }))
+                    setFilters((f) => ({
+                      ...f,
+                      tags: values.map((t) => t.id!),
+                    }))
                   }
                   renderInput={(p) => (
                     <TextField
@@ -1570,7 +1647,12 @@ export default function Restaurants({ restaurantId }: { restaurantId?: number })
                     <Switch
                       checked={filters.threshold}
                       disabled={!filters.personId}
-                      onChange={(e) => setFilters((f) => ({ ...f, threshold: e.target.checked }))}
+                      onChange={(e) =>
+                        setFilters((f) => ({
+                          ...f,
+                          threshold: e.target.checked,
+                        }))
+                      }
                     />
                   }
                   label="Minimum person score"
@@ -1591,7 +1673,7 @@ export default function Restaurants({ restaurantId }: { restaurantId?: number })
                   Off until enabled. Household clears it; returning to a person leaves it Off.
                 </Typography>
                 <Stack direction="row" justifyContent="flex-end">
-                  <Button onClick={clear}>Clear filters</Button>
+                  <Button onClick={clear}>Clear all</Button>
                   <Button variant="contained" onClick={() => setDrawer(false)}>
                     Show results
                   </Button>

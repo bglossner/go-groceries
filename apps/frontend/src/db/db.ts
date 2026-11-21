@@ -236,6 +236,13 @@ export class MySubClassedDexie extends Dexie {
     }).upgrade(tx => tx.table('imageMigrationJobs').put({
       id: 'scan', issues: [], updatedAt: new Date().toISOString(),
     }));
+    // Remove discarded pre-release fields before local readers, saves or exports run.
+    this.on('ready', database => database.table<Record<string, unknown>, number>('restaurants')
+      .filter(row => 'latitude' in row || 'longitude' in row)
+      .modify(row => {
+        delete row.latitude;
+        delete row.longitude;
+      }), true);
   }
 }
 

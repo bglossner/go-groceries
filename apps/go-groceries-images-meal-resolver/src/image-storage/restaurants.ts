@@ -49,8 +49,6 @@ export const restaurantSchema = z
     regionKey: z.string(),
     cityKey: z.string(),
     address: optionalText(2000),
-    latitude: z.number().finite().min(-90).max(90).optional(),
-    longitude: z.number().finite().min(-180).max(180).optional(),
     googleMapsUrl: mapsUrl.optional(),
     menuImages: images.optional(),
     ...dates,
@@ -68,12 +66,6 @@ export const restaurantSchema = z
         code: 'custom',
         path: ['country'],
         message: 'Country required for state or city',
-      });
-    if ((r.latitude === undefined) !== (r.longitude === undefined))
-      c.addIssue({
-        code: 'custom',
-        path: ['latitude'],
-        message: 'Enter both coordinates or clear both',
       });
     if (new Set(r.tags).size !== r.tags.length)
       c.addIssue({ code: 'custom', path: ['tags'], message: 'Duplicate tag' });

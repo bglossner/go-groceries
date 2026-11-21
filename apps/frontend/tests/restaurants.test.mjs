@@ -70,8 +70,6 @@ async function seed() {
       country: 'United Kingdom',
       region: 'England',
       city: 'London',
-      latitude: 0,
-      longitude: 0,
       googleMapsUrl: 'https://maps.google.com/?q=0,0',
     }),
     ['Only vegan']
@@ -80,7 +78,12 @@ async function seed() {
   const sarah = await savePerson('Sarah');
   const ref = await cacheImage(image());
   const itemId = await saveDish(
-    dish(rid, { images: [ref], coverImageIndex: 0, priceAmount: '10.00', currency: 'GBP' }),
+    dish(rid, {
+      images: [ref],
+      coverImageIndex: 0,
+      priceAmount: '10.00',
+      currency: 'GBP',
+    }),
     [rating(ben, 9), rating(sarah, 8)]
   );
   return { rid, itemId, ben, sarah, ref, tag };
@@ -130,7 +133,10 @@ test('restaurant CRUD trims, preserves createdAt and cascades ratings while reta
   const s = await seed();
   const saved = await db.restaurants.get(s.rid);
   await saveRestaurant({ ...saved, name: ' Updated ' });
-  expect(await db.restaurants.get(s.rid)).toMatchObject({ name: 'Updated', createdAt: time });
+  expect(await db.restaurants.get(s.rid)).toMatchObject({
+    name: 'Updated',
+    createdAt: time,
+  });
   await deleteRestaurant(s.rid);
   expect(await db.restaurantItems.count()).toBe(0);
   expect(await db.restaurantItemRatings.count()).toBe(0);
@@ -174,7 +180,10 @@ test('tags seed idempotently, reuse custom names and implement only explicit die
 });
 test('ratings require half points, unique pairs, active new people; archive/rename/erase recalculate means', async () => {
   const s = await seed();
-  expect(ratingSummary(await db.restaurantItemRatings.toArray())).toEqual({ count: 2, mean: 8.5 });
+  expect(ratingSummary(await db.restaurantItemRatings.toArray())).toEqual({
+    count: 2,
+    mean: 8.5,
+  });
   await archivePerson(s.ben, true);
   expect(ratingSummary(await db.restaurantItemRatings.toArray()).mean).toBe(8.5);
   await savePerson('Benjamin', s.ben);
@@ -185,21 +194,16 @@ test('ratings require half points, unique pairs, active new people; archive/rena
   ).rejects.toThrow('One rating');
   expect(await db.restaurantItemRatings.count()).toBe(2);
   await erasePerson(s.ben);
-  expect(ratingSummary(await db.restaurantItemRatings.toArray())).toEqual({ count: 1, mean: 8 });
+  expect(ratingSummary(await db.restaurantItemRatings.toArray())).toEqual({
+    count: 1,
+    mean: 8,
+  });
   for (const score of [0, 10.5, 8.25, NaN])
     expect(ratingSchema.safeParse(rating(s.sarah, score)).success).toBe(false);
 });
-test('strict field, coordinate, Maps, price, calendar and image validation', () => {
+test('strict field, Maps, price, calendar and image validation', () => {
   for (const name of ['', '  ', 'x'.repeat(201)])
     expect(restaurantSchema.safeParse(restaurant({ name })).success).toBe(false);
-  expect(restaurantSchema.safeParse(restaurant({ latitude: 0, longitude: 0 })).success).toBe(true);
-  for (const changes of [
-    { latitude: 0 },
-    { latitude: 91, longitude: 0 },
-    { latitude: NaN, longitude: 0 },
-    { latitude: 0, longitude: Infinity },
-  ])
-    expect(restaurantSchema.safeParse(restaurant(changes)).success).toBe(false);
   for (const url of [
     'javascript:alert(1)',
     'http://maps.google.com',
@@ -221,7 +225,13 @@ test('AND filtering, implied tags, pins-first, person threshold, missing locatio
     restaurant({ name: 'Other', country: 'Canada', city: 'London' })
   );
   const data = await readRestaurantData();
-  const base = { search: '', tags: [], sort: 'name', threshold: false, minimum: 8 };
+  const base = {
+    search: '',
+    tags: [],
+    sort: 'name',
+    threshold: false,
+    minimum: 8,
+  };
   const select = (f) =>
     selectRestaurants(
       data.restaurants,
@@ -309,7 +319,7 @@ test('old15/1 read supplies empty feature tables; unsupported/missing versions r
   expect(() => parseSnapshot(malformed)).toThrow();
   expect(await db.restaurants.get(s.rid)).toBeDefined();
 });
-test('both validators reject relationship, name-key, coordinate and rating malformations', async () => {
+test('both validators reject relationship, name-key and rating malformations', async () => {
   await seed();
   const { snapshot } = await freezeSnapshot(crypto.randomUUID(), crypto.randomUUID());
   for (const mutate of [
@@ -339,6 +349,10 @@ test('digest catches pin/location/hidden/rating/person/bulk deletes', async () =
   for (const action of [
     () => db.restaurants.update(s.rid, { isPinned: true }),
     () => db.restaurants.update(s.rid, { address: 'New address' }),
+    () =>
+      db.restaurants.update(s.rid, {
+        googleMapsUrl: 'https://maps.google.com/?q=London',
+      }),
     () => db.restaurantItems.update(s.itemId, { priceAmount: '12' }),
     () => db.restaurantItemRatings.toCollection().modify({ score: 7 }),
     () => savePerson('Benjamin', s.ben),
@@ -354,7 +368,11 @@ test('digest catches pin/location/hidden/rating/person/bulk deletes', async () =
 });
 test('Worker rejects old commit and already committed old publication after16, even with current revision', async () => {
   const storage = createStorage();
-  const app = createApp({ client: () => storage.client, sign: storage.sign, now: Date.now });
+  const app = createApp({
+    client: () => storage.client,
+    sign: storage.sign,
+    now: Date.now,
+  });
   const collectionId = crypto.randomUUID();
   const old = {
     format: 'go-groceries-snapshot',
@@ -488,7 +506,10 @@ test('canonical byte, asset and total-row cloud boundaries agree in both validat
       sha256: hash,
       mimeType: 'image/png',
       byteLength: 1,
-      location: { provider: 'r2', key: `collections/${collectionId}/images/sha256/${hash}` },
+      location: {
+        provider: 'r2',
+        key: `collections/${collectionId}/images/sha256/${hash}`,
+      },
     });
   }
   assets.data.tables.meals = Array.from({ length: 6 }, (_, i) => ({
@@ -505,7 +526,10 @@ test('canonical byte, asset and total-row cloud boundaries agree in both validat
   extra.assetId = extra.sha256 = 'f'.repeat(64);
   extra.location.key = `collections/${collectionId}/images/sha256/${extra.sha256}`;
   assets.assets.push(extra);
-  assets.data.tables.meals[5].images.push({ kind: 'asset', assetId: extra.assetId });
+  assets.data.tables.meals[5].images.push({
+    kind: 'asset',
+    assetId: extra.assetId,
+  });
   expect(() => parseSnapshot(assets)).toThrow();
   expect(() => workerParse(assets)).toThrow();
 });
@@ -573,21 +597,34 @@ test('rated sorting uses personal scores, unrounded means, stable ties and pins 
     ...[8, 8.5, 8.5].map((score, i) => rating(i + 1, score, { id: 10 + i, itemId: 3 })),
     ...[8, 8, 8.5, 8.5, 8.5].map((score, i) => rating(i + 1, score, { id: 20 + i, itemId: 4 })),
   ];
-  const filters = { search: '', tags: [], sort: 'rated', threshold: false, minimum: 8 };
+  const filters = {
+    search: '',
+    tags: [],
+    sort: 'rated',
+    threshold: false,
+    minimum: 8,
+  };
   const household = selectRestaurants(restaurants, items, ratings, [], filters);
   expect(household.map((r) => r.restaurant.id)).toEqual([1, 2, 3, 4]);
   expect(household[1].score.toFixed(1)).toBe(household[2].score.toFixed(1));
   expect(household[1].score).toBeGreaterThan(household[2].score);
   expect(
-    selectRestaurants(restaurants, items, ratings, [], { ...filters, personId: 1 })[0].best.id
+    selectRestaurants(restaurants, items, ratings, [], {
+      ...filters,
+      personId: 1,
+    })[0].best.id
   ).toBe(1);
   expect(
-    selectRestaurants(restaurants, items, ratings, [], { ...filters, personId: 2 })[0].best.id
+    selectRestaurants(restaurants, items, ratings, [], {
+      ...filters,
+      personId: 2,
+    })[0].best.id
   ).toBe(2);
   expect(
-    selectRestaurants(restaurants, items, ratings, [], { ...filters, search: 'mean' }).map(
-      (r) => r.restaurant.id
-    )
+    selectRestaurants(restaurants, items, ratings, [], {
+      ...filters,
+      search: 'mean',
+    }).map((r) => r.restaurant.id)
   ).toEqual([2, 3]);
 });
 
@@ -595,7 +632,10 @@ test('review R9: retained dish and hidden menu references allow offline edits an
   const s = await seed();
   await db.restaurants.update(s.rid, { menuImages: [s.ref] });
   await db.imageAssets.clear();
-  await saveRestaurant({ ...(await db.restaurants.get(s.rid)), notes: 'Offline restaurant note' });
+  await saveRestaurant({
+    ...(await db.restaurants.get(s.rid)),
+    notes: 'Offline restaurant note',
+  });
   await saveDish({ ...(await db.restaurantItems.get(s.itemId)), notes: 'Offline dish note' }, [
     rating(s.ben, 7.5),
   ]);
@@ -631,12 +671,74 @@ test('review R10: UTC+14 calendar boundary permits retained dates from another t
     await expect(saveDish({ ...before, lastOrderedDate: '2026-01-02' }, [])).rejects.toThrow(
       'future'
     );
-    await db.restaurantItems.update(s.itemId, { lastOrderedDate: '2026-01-02' });
-    await saveDish({ ...(await db.restaurantItems.get(s.itemId)), notes: 'Retained from UTC+14' }, [
-      rating(s.ben, 9),
-    ]);
+    await db.restaurantItems.update(s.itemId, {
+      lastOrderedDate: '2026-01-02',
+    });
+    await saveDish(
+      {
+        ...(await db.restaurantItems.get(s.itemId)),
+        notes: 'Retained from UTC+14',
+      },
+      [rating(s.ben, 9)]
+    );
   } finally {
     vi.useRealTimers();
     vi.restoreAllMocks();
   }
+});
+
+test('removed coordinate fields are rejected by both contracts and portable restore; Maps survives adapters', async () => {
+  const s = await seed();
+  const { snapshot } = await freezeSnapshot(crypto.randomUUID(), crypto.randomUUID());
+  const saved = await db.restaurants.get(s.rid);
+  expect(snapshot.data.tables.restaurants[0]).toEqual(saved);
+  expect(workerParse(snapshot).data.tables.restaurants[0].googleMapsUrl).toBe(saved.googleMapsUrl);
+  const staged = await stageSnapshot(snapshot);
+  try {
+    expect(await staged.temporary.restaurants.get(s.rid)).toEqual(saved);
+  } finally {
+    await staged.temporary.delete();
+  }
+  const backup = JSON.parse(await (await getExportBlob()).text());
+  for (const fields of [{ latitude: 0 }, { longitude: 0 }, { latitude: 0, longitude: 0 }]) {
+    expect(restaurantSchema.safeParse({ ...saved, ...fields }).success).toBe(false);
+    const bad = structuredClone(snapshot);
+    Object.assign(bad.data.tables.restaurants[0], fields);
+    expect(() => parseSnapshot(bad)).toThrow();
+    expect(() => workerParse(bad)).toThrow();
+    await expect(stageSnapshot(bad)).rejects.toThrow();
+    const portable = structuredClone(backup);
+    Object.assign(portable.data.data.find((t) => t.tableName === 'restaurants').rows[0], fields);
+    await expect(handleFileImport(new Blob([JSON.stringify(portable)]))).rejects.toThrow(
+      'Invalid backup row in restaurants'
+    );
+    expect(await db.restaurants.get(s.rid)).toEqual(saved);
+  }
+  await handleFileImport(new Blob([JSON.stringify(backup)]));
+  expect(await db.restaurants.get(s.rid)).toEqual(saved);
+});
+
+test('existing unreleased v16 rows discard removed fields on open without losing editable or portable data', async () => {
+  const s = await seed();
+  const expected = await db.restaurants.get(s.rid);
+  const ratings = await db.restaurantItemRatings.toArray();
+  await db.restaurants.update(s.rid, { latitude: 0, longitude: 0 });
+  db.close();
+  await db.open();
+  expect(await db.restaurants.get(s.rid)).toEqual(expected);
+  expect(await db.restaurantItemRatings.toArray()).toEqual(ratings);
+  expect(
+    await saveRestaurant({
+      ...(await db.restaurants.get(s.rid)),
+      notes: 'Edited after reopen',
+    })
+  ).toBe(s.rid);
+  const { snapshot } = await freezeSnapshot(crypto.randomUUID(), crypto.randomUUID());
+  expect(snapshot.data.tables.restaurants[0].googleMapsUrl).toBe(expected.googleMapsUrl);
+  expect(snapshot.data.tables.restaurants[0]).not.toHaveProperty('latitude');
+  expect(snapshot.data.tables.restaurants[0]).not.toHaveProperty('longitude');
+  const backup = await getExportBlob();
+  await handleFileImport(backup);
+  expect((await db.restaurants.get(s.rid)).notes).toBe('Edited after reopen');
+  expect(await db.restaurantItemRatings.toArray()).toEqual(ratings);
 });

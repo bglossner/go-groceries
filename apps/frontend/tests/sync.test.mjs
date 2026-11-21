@@ -155,3 +155,33 @@ test('full snapshot share disclosure can cancel before capability creation', asy
 test('automatic schema16 removal requires confirmation and preserves live metadata',async()=>{
  const time='2020-01-01T00:00:00.000Z';await db.restaurants.add({name:'Keep local notebook',tags:[],notes:'',isPinned:false,countryKey:'',regionKey:'',cityKey:'',createdAt:time,updatedAt:time});const {snapshot}=await freezeSnapshot(crypto.randomUUID(),crypto.randomUUID());snapshot.data.tables.restaurants=[];const blob=new Blob([JSON.stringify(snapshot)]);await expect(importSyncFile(blob,{automatic:true})).rejects.toThrow('remove restaurant');expect(await db.restaurants.count()).toBe(1);
 });
+
+
+test.each([false, true])('coordinate-bearing schema16 pending publication refreshes without changing revision condition (head %s)', async (hasHead) => {
+  await seed();
+  const time = '2020-01-01T00:00:00.000Z';
+  const rid = await db.restaurants.add({ name: 'Pending kitchen', tags: [], notes: '', isPinned: false,
+    countryKey: '', regionKey: '', cityKey: '', googleMapsUrl: 'https://maps.google.com/?q=London', createdAt: time, updatedAt: time });
+  if (hasHead) await syncTo({ automatic: false });
+  let writer = await db.syncs.where('type').equals('to').first();
+  const collectionId = writer?.collectionId ?? crypto.randomUUID();
+  const { snapshot } = await freezeSnapshot(collectionId, crypto.randomUUID());
+  Object.assign(snapshot.data.tables.restaurants[0], { latitude: 0, longitude: 0 });
+  const expectedRevision = writer?.revision ?? null;
+  await db.syncs.put({ ...writer, type: 'to', format: 'v2', collectionId, filename: collectionId,
+    uploadType: 'manual', createdAt: new Date(), automatic: false, pendingPublication: { snapshot, expectedRevision } });
+  await db.restaurants.update(rid, { notes: 'Later local edit' });
+  fetchMock.mockClear();
+  await syncTo({ automatic: false });
+  const repaired = published();
+  expect(repaired.snapshotId).not.toBe(snapshot.snapshotId);
+  expect(repaired.data.tables.restaurants[0].notes).toBe('Later local edit');
+  expect(repaired.data.tables.restaurants[0].googleMapsUrl).toBe('https://maps.google.com/?q=London');
+  expect(repaired.data.tables.restaurants[0]).not.toHaveProperty('latitude');
+  expect(repaired.data.tables.restaurants[0]).not.toHaveProperty('longitude');
+  const publishes = fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/v2/snapshots/publish'));
+  expect(JSON.parse(publishes[0][1].body).expectedRevision).toBe(expectedRevision);
+  writer = await db.syncs.where('type').equals('to').first();
+  expect(writer.pendingPublication).toBeUndefined();
+  expect(await db.imageAssets.count()).toBe(1);
+});

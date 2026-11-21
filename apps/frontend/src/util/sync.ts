@@ -27,7 +27,11 @@ async function publish(options: { existingSync?: Sync; automatic: boolean; newLo
   }
   const collectionId = sync.collectionId!;
   const resumedPending = !!sync.pendingPublication;
-  if (!sync.pendingPublication || sync.pendingPublication.snapshot.data.schemaVersion === 15) {
+  const pendingSnapshot = sync.pendingPublication?.snapshot;
+  const hasRemovedFields = pendingSnapshot?.data.schemaVersion === 16 &&
+    pendingSnapshot.data.tables.restaurants.some(row => 'latitude' in row || 'longitude' in row);
+  // An obsolete local frozen snapshot needs a fresh immutable ID; keep its revision condition.
+  if (!sync.pendingPublication || pendingSnapshot?.data.schemaVersion === 15 || hasRemovedFields) {
     progress('Preparing metadata and checking local images...');
     await runImageMigration();
     const { snapshot } = await freezeSnapshot(collectionId, crypto.randomUUID());
