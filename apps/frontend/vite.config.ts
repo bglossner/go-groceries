@@ -82,7 +82,7 @@ export default defineConfig(({ mode }) => {
       usePolling: true,
     },
     port: isPwaMode ? 5174 : undefined,
-    host: isPwaMode,
+    host: mode === 'regression' ? '127.0.0.1' : isPwaMode,
     allowedHosts: isPwaMode ? true : undefined,
   } satisfies ServerOptions;
 

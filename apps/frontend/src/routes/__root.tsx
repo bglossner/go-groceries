@@ -23,21 +23,19 @@ const RootComponent: React.FC = () => {
             </Link>
           </Typography>
           <Box sx={{ flexGrow: 1 }} />
-          <Button color="inherit" component={Link} to="/meals">
-            Meals
-          </Button>
-          <Button color="inherit" component={Link} to="/grocery-list">
-            Lists
-          </Button>
-          <Button color="inherit" component={Link} to="/manage-stores">
-            Stores
-          </Button>
-          <IconButton color="inherit" onClick={() => navigate({ to: '/settings' })}>
-            <SettingsIcon />
-          </IconButton>
+          <Box sx={{display:{xs:'none',sm:'flex'}}}>
+            <Button color="inherit" component={Link} to="/meals">Meals</Button>
+            <Button color="inherit" component={Link} to="/grocery-list">Lists</Button>
+            <Button color="inherit" component={Link} to="/manage-stores">Stores</Button>
+            <Button color="inherit" component={Link} to="/restaurants">Restaurants</Button>
+          </Box>
+          <IconButton color="inherit" aria-label="Settings" onClick={() => navigate({to:'/settings'})}><SettingsIcon /></IconButton>
         </Toolbar>
+        <Box component="nav" aria-label="Main navigation" sx={{display:{xs:'flex',sm:'none'},justifyContent:'space-around',pb:1}}>
+          <Button color="inherit" component={Link} to="/meals">Meals</Button><Button color="inherit" component={Link} to="/grocery-list">Lists</Button><Button color="inherit" component={Link} to="/manage-stores">Stores</Button><Button color="inherit" component={Link} to="/restaurants">Restaurants</Button>
+        </Box>
       </AppBar>
-      <Toolbar />
+      <Toolbar /><Box sx={{height:{xs:44,sm:0}}} />
       <Container sx={{ mt: 2 }}>
         <Outlet />
       </Container>

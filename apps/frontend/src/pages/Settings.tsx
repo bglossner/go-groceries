@@ -1,3 +1,5 @@
+import {useAdvancedRestaurantFields} from '../hooks/useRestaurants';
+import {SHOW_ADVANCED_RESTAURANT_FIELDS_KEY} from '../util/db/settings';
 import React, { useState, useEffect } from 'react';
 import { Typography, Box, IconButton, Button, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText, TextField, FormControlLabel, Switch } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -14,6 +16,7 @@ interface RecalcResult {
 }
 
 const SettingsPage: React.FC = () => {
+  const advanced = useAdvancedRestaurantFields();
   const [recalcModalOpen, setRecalcModalOpen] = useState(false);
   const [recalcResult, setRecalcResult] = useState<RecalcResult | null>(null);
   const { showSuccessToast } = useToast();
@@ -195,6 +198,10 @@ const SettingsPage: React.FC = () => {
         </Button>
       </Box>
 
+      <Box sx={{mt:4}}><Typography variant="h5" component="h2">Restaurant settings</Typography>
+        <FormControlLabel label="Show advanced restaurant fields" control={<Switch checked={advanced} onChange={e => void db.settings.put({id:SHOW_ADVANCED_RESTAURANT_FIELDS_KEY,value:String(e.target.checked)}).then(()=>queryClient.invalidateQueries({queryKey:['settings',SHOW_ADVANCED_RESTAURANT_FIELDS_KEY]}))} />} />
+        <Typography variant="body2">Shows price/currency, portion and spice on this device. Hidden saved and draft values are retained; Save includes hidden edits and Discard leaves saved values unchanged. Content import does not change this setting.</Typography>
+      </Box>
       <SyncSettings />
 
       <Box sx={{ mt: 4 }}>

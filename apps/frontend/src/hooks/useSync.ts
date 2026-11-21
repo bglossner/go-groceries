@@ -1,3 +1,4 @@
+import {hasRestaurantChanges} from '../util/db/import';
 
 import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -24,7 +25,7 @@ export const useSync = () => {
           return;
         }
         const { blob, diffsResult } = syncResult;
-        if (syncResult.needsConfirmation || diffsResult.mealDiffs.toAdd.length > 0 || diffsResult.mealDiffs.toRemove.length > 0) {
+        if (syncResult.needsConfirmation || diffsResult.mealDiffs.toAdd.length > 0 || diffsResult.mealDiffs.toRemove.length > 0 || hasRestaurantChanges(diffsResult)) {
           openDiffsModal(diffsResult, blob, () => undefined);
         } else {
           showSuccessToast(await importSyncFile(blob, { automatic: true }));

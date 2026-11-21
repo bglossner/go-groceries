@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test';
 import {join} from 'node:path';
 const base = 'http://127.0.0.1:18926';
 // Keep this contract independent of the exporter's production allowlist.
-const portableTables = ['meals','groceryLists','groceryListStates','recipes','tags','customIngredients','pendingRecipes','stores','ingredientStores','imageAssets'];
+const portableTables = ['meals','groceryLists','groceryListStates','recipes','tags','customIngredients','pendingRecipes','stores','ingredientStores','imageAssets','restaurants','restaurantTags','restaurantItems','people','restaurantItemRatings'];
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=','base64');
 async function guard(context) {
   const unexpected = [];

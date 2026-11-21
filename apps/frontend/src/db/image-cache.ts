@@ -225,9 +225,9 @@ async function migrate(database: MySubClassedDexie, options: { maxRows?: number;
 // Metadata reachability is authoritative; the upload inventory may also retain historical jobs.
 export const getReferencedAssetIds = async (database = db): Promise<Set<string>> => {
   const ids = new Set<string>();
-  for (const name of ['meals', 'recipes', 'pendingRecipes']) {
+  for (const name of ['meals', 'recipes', 'pendingRecipes', 'restaurantItems', 'restaurants']) {
     for (const row of await database.table(name).toArray()) {
-      for (const image of row.images ?? []) if (isAssetRef(image)) ids.add(image.assetId);
+      for (const image of (name === 'restaurants' ? row.menuImages : row.images) ?? []) if (isAssetRef(image)) ids.add(image.assetId);
     }
   }
   return ids;

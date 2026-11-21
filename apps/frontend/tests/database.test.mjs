@@ -9,18 +9,18 @@ import { handleFileImport } from '../src/util/db/import.ts';
 import { saveMeal } from '../src/db/save-meal.ts';
 import { cleanDatabase, date, meal, image, png } from './helpers.mjs';
 cleanDatabase();
-test('schema has all fourteen stores and version 15', async () => {
-  expect(db.verno).toBe(15);
-  expect(db.tables.map(table => table.name).sort()).toEqual(['meals','recipes','pendingRecipes','groceryLists','groceryListStates','tags','customIngredients','settings','stores','ingredientStores','syncs','imageAssets','imageMigrationJobs','imageUploadJobs'].sort());
+test('schema has all nineteen stores and version 16', async () => {
+  expect(db.verno).toBe(16);
+  expect(db.tables.map(table => table.name).sort()).toEqual(['meals','recipes','pendingRecipes','groceryLists','groceryListStates','tags','customIngredients','settings','stores','ingredientStores','syncs','imageAssets','imageMigrationJobs','imageUploadJobs','restaurants','restaurantTags','restaurantItems','people','restaurantItemRatings'].sort());
 });
 test('v14 -> v15 adds stores without rewriting bytes, then migration resumes and deduplicates', async () => {
   const current = new MySubClassedDexie(true); const old = new Dexie(current.name);
-  old.version(14).stores(Object.fromEntries(db.tables.filter(t => !t.name.startsWith('image')).map(t => [t.name,t.schema.primKey.src + (t.schema.indexes.length ? ',' + t.schema.indexes.map(i => i.src).join(',') : '')])));
+  old.version(14).stores(Object.fromEntries(db.tables.filter(t => !t.name.startsWith('image') && !['restaurants','restaurantTags','restaurantItems','people','restaurantItemRatings'].includes(t.name)).map(t => [t.name,t.schema.primKey.src + (t.schema.indexes.length ? ',' + t.schema.indexes.map(i => i.src).join(',') : '')])));
   await old.open(); await old.table('meals').put({...meal(10),images:[{type:'recipeImage',recipeId:10,imageIndex:0,isThumbnail:true}]});
   await old.table('recipes').put({id:100,mealId:10,images:[image(),image()],url:'',notes:'retained'});
   old.close();
   try {
-    await current.open(); expect(current.verno).toBe(15);
+    await current.open(); expect(current.verno).toBe(16);
     expect(new Uint8Array(await (await current.recipes.get(100)).images[0].arrayBuffer())).toEqual(png);
     expect(await current.imageMigrationJobs.get('scan')).toBeDefined();
     expect((await runImageMigration(current,{maxRows:1})).interrupted).toBe(true);

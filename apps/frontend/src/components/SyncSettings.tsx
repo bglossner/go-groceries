@@ -1,3 +1,4 @@
+import {hasRestaurantChanges} from '../util/db/import';
 import React, { useState, useEffect } from 'react';
 import { Typography, Box, Button, CircularProgress, Checkbox, FormControlLabel, TextField, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -66,7 +67,7 @@ export const SyncSettings: React.FC = () => {
   const syncFromDbMutation = useMutation({
     mutationFn: async () => {
       const { blob, diffsResult } = await syncFromDb(setDownloadProgress);
-      if (diffsResult.mealDiffs.toAdd.length || diffsResult.mealDiffs.toRemove.length) {
+      if (diffsResult.mealDiffs.toAdd.length || diffsResult.mealDiffs.toRemove.length || hasRestaurantChanges(diffsResult)) {
         openDiffsModal(diffsResult, blob, () => { void queryClient.invalidateQueries(); });
       } else {
         const message = await importSyncFile(blob);

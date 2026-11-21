@@ -1,3 +1,5 @@
+import {RESTAURANT_TABLE_LABELS} from '../util/db/import';
+import type { DiffsResult } from '../util/db/import';
 import React, { useState, type ReactNode, useCallback } from 'react';
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Box, List, ListItem } from '@mui/material';
 import { importSyncFile } from '../util/sync-from';
@@ -9,13 +11,13 @@ import { useToast } from '../hooks/useToast';
 export const DiffsModalProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const queryClient = useQueryClient();
   const [diffsModalOpen, setDiffsModalOpen] = useState(false);
-  const [diffs, setDiffs] = useState<{ mealDiffs: { toAdd: Meal[], toRemove: Meal[] } } | null>(null);
+  const [diffs, setDiffs] = useState<{ mealDiffs: { toAdd: Meal[], toRemove: Meal[] }; restaurantDiffs?: DiffsResult['restaurantDiffs'] } | null>(null);
   const [importBlob, setImportBlob] = useState<Blob | null>(null);
   const [importing, setImporting] = useState(false);
   const [onConfirm, setOnConfirm] = useState<(() => void) | null>(null);
   const { showSuccessToast, showErrorToast } = useToast();
 
-  const openDiffsModal = useCallback((diffsData: { mealDiffs: { toAdd: Meal[], toRemove: Meal[] } }, blob: Blob, onConfirm: () => void) => {
+  const openDiffsModal = useCallback((diffsData: { mealDiffs: { toAdd: Meal[], toRemove: Meal[] }; restaurantDiffs?: DiffsResult['restaurantDiffs'] }, blob: Blob, onConfirm: () => void) => {
     setDiffs(diffsData);
     setImportBlob(blob);
     setOnConfirm(() => onConfirm); // Store the callback
@@ -56,6 +58,9 @@ export const DiffsModalProvider: React.FC<{ children: ReactNode }> = ({ children
             Import replaces local meals, recipes, lists and other metadata, including image-only changes.
             Any unsynced local edits will be replaced. The following meal names changed:
           </Typography>
+          {diffs?.restaurantDiffs?.map(row => <Typography key={row.table} sx={{mt:1}}>
+            {RESTAURANT_TABLE_LABELS[row.table]??row.table}: {row.before} local → {row.after} imported; {row.added} added, {row.removed} removed, {row.changed} changed.
+          </Typography>)}
           {diffs && diffs.mealDiffs.toAdd.length > 0 && (
             <Box sx={{ mt: 2 }}>
               <Typography variant="h6">Meals to be Added:</Typography>

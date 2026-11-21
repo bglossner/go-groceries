@@ -27,15 +27,20 @@ async function publish(options: { existingSync?: Sync; automatic: boolean; newLo
   }
   const collectionId = sync.collectionId!;
   const resumedPending = !!sync.pendingPublication;
-  if (!sync.pendingPublication) {
+  const pendingSnapshot = sync.pendingPublication?.snapshot;
+  const hasRemovedFields = pendingSnapshot?.data.schemaVersion === 16 &&
+    pendingSnapshot.data.tables.restaurants.some(row => 'latitude' in row || 'longitude' in row);
+  // An obsolete local frozen snapshot needs a fresh immutable ID; keep its revision condition.
+  if (!sync.pendingPublication || pendingSnapshot?.data.schemaVersion === 15 || hasRemovedFields) {
     progress('Preparing metadata and checking local images...');
     await runImageMigration();
     const { snapshot } = await freezeSnapshot(collectionId, crypto.randomUUID());
-    const pendingPublication = { snapshot, expectedRevision: sync.revision ?? null };
+    const pendingPublication = { snapshot, expectedRevision: sync.pendingPublication ? sync.pendingPublication.expectedRevision : sync.revision ?? null };
     await db.syncs.update(sync.id!, { pendingPublication });
     sync = { ...sync, pendingPublication };
   }
   const pending = sync.pendingPublication!;
+  if (pending.snapshot.data.schemaVersion !== 16 || pending.snapshot.data.adapterVersion !== 2) throw new Error('Older pending snapshot cannot be published. Import the current collection in Sync settings before retrying.');
   const snapshot = parseSnapshot(pending.snapshot);
   // Reconcile the authoritative frozen inventory on every attempt, even after remote deletion.
   for (let start = 0; start < snapshot.assets.length; start += IMAGE_LIMITS.batch) {
