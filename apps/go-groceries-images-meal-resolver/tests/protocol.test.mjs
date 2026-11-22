@@ -4,6 +4,7 @@ import * as sdk from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { test as vitest, afterAll, vi } from 'vitest';
 import { createApp } from '../src/index.ts';
+import { memoryR2Bucket } from '../../../test/memory-storage.mjs';
 vi.stubGlobal('crypto', webcrypto);
 const collectionId = '11111111-1111-4111-8111-111111111111';
 const otherCollection = '22222222-2222-4222-8222-222222222222';
@@ -57,6 +58,7 @@ async function send(command) {
 const env = { PASS: 'synthetic-writer-secret', ENABLE_PASS: 'true', R2_BUCKET_NAME: 'synthetic-bucket',
  R2_ACCOUNT_ID: 'synthetic-account', R2_ACCESS_KEY_ID: 'synthetic-access', R2_ACCESS_KEY_SECRET: 'synthetic-secret',
  CORS_ALLOWED_ORIGINS: 'https://app.example,http://localhost:5173',
+ IMAGES_BUCKET: memoryR2Bucket(objects, object => object.mimeType),
  CAPABILITY_SECRET: 'synthetic-server-only-capability-key-not-a-real-secret' };
 const client = new sdk.S3Client({ region: 'auto', endpoint: 'https://synthetic-account.r2.cloudflarestorage.com',
  credentials: { accessKeyId: env.R2_ACCESS_KEY_ID, secretAccessKey: env.R2_ACCESS_KEY_SECRET } });

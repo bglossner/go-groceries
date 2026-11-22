@@ -15,7 +15,8 @@ export const uploadInput = z.object({
 export const assetSchema = uploadInput.extend({
   assetId: digest, location: z.object({ provider: z.literal('r2'), key: z.string().max(200) }).strict(),
 }).strict();
-export const imageKey = (collectionId: string, sha256: string) => `collections/${collectionId}/images/sha256/${sha256}`;
+export const imagePrefix = (collectionId: string) => `collections/${collectionId}/images/sha256/`;
+export const imageKey = (collectionId: string, sha256: string) => `${imagePrefix(collectionId)}${sha256}`;
 export const snapshotKey = (collectionId: string, snapshotId: string) => `collections/${collectionId}/snapshots/${snapshotId}.json`;
 export const headKey = (collectionId: string) => `collections/${collectionId}/latest.json`;
 export const stagingKey = (collectionId: string, uploadId: string) => `collections/${collectionId}/staging/${uploadId}`;
