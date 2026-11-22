@@ -41,7 +41,7 @@ const AppWrapper = () => {
   const handledImports = useRef(new WeakSet<Blob>());
   useDebouncedSync(); // Call the debounced sync hook
   const { openDiffsModal } = useDiffsModal();
-  const { showSuccessToast, showErrorToast } = useToast();
+  const { showSuccessToast, showErrorToast, showActionToast } = useToast();
 
   useServiceWorkerUpdate();
   useEffect(() => {
@@ -85,7 +85,7 @@ const AppWrapper = () => {
     queryKey: ['checkSyncToData'],
     queryFn: async () => {
       try {
-        return await checkAndTriggerAutoSyncTo();
+        return await checkAndTriggerAutoSyncTo(message => showActionToast(message, undefined));
       } catch (error: unknown) {
         showErrorToast(`Automatic sync [to] failed: ${(error as Error).message}`);
         return null;
@@ -99,14 +99,16 @@ const AppWrapper = () => {
       return;
     }
 
-    if (syncToData && syncToData.type !== 'ERROR') {
+    if (syncToData?.type === 'ERROR') {
+      showErrorToast(syncToData.message);
+    } else if (syncToData) {
       if (syncToData.type === 'SUCCESS') {
         showSuccessToast('Automatic sync [to] successful!');
       } else {
         showSuccessToast('Automatic sync [to] successful! Nothing done.');
       }
     }
-  }, [syncToData, isSyncingTo, showSuccessToast]);
+  }, [syncToData, isSyncingTo, showSuccessToast, showErrorToast]);
 
   useEffect(() => {
     if (isLoading) {

@@ -3,11 +3,13 @@ import { SNAPSHOT_LIMITS } from '../../shareable/snapshot';
 
 export class SyncApiError extends Error {
   status: number;
-  constructor(status: number) {
+  imageRejection?: 'container';
+  constructor(status: number, imageRejection?: 'container') {
     super(status === 409 ? 'Cloud sync conflict. Latest changed; import the latest collection before retrying.' :
       status === 403 ? 'Sync authorization expired or was rejected. Set the writer pass or open a valid shared link.' :
       `Cloud sync request failed (${status}). Retry sync to resume safely.`);
     this.status = status;
+    this.imageRejection = imageRejection;
   }
 }
 export type ReadPermission = { pass: string } | { shareToken: string };
@@ -42,7 +44,15 @@ export async function v2Post<T>(path: string, body: object, permission: ReadPerm
         body: JSON.stringify({ ...body, ...('pass' in permission ? { pass: permission.pass } : {}) }),
         cache: 'no-store', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(30000),
       });
-      if (!response.ok) throw new SyncApiError(response.status);
+      if (!response.ok) {
+        if (path === 'images/complete' && response.status === 400) {
+          const body = await boundedJson(response, 512).catch(() => undefined);
+          if (body && typeof body === 'object' && 'error' in body && body.error === 'Invalid image container or dimensions') {
+            throw new SyncApiError(response.status, 'container');
+          }
+        }
+        throw new SyncApiError(response.status);
+      }
       return await boundedJson(response) as T;
     } catch (error) {
       const transient = !(error instanceof SyncApiError) || [408, 429, 500, 502, 503, 504].includes(error.status);

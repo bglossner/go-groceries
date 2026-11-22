@@ -91,6 +91,14 @@ export async function syncFromDb(onProgress?: SyncProgress): Promise<{ blob: Blo
   return { blob, diffsResult };
 }
 
+// The same device can publish a cloud copy that intentionally differs from its original photo references.
+function matchesAutomaticImportBaseline(localDigest: string, collectionId: string | undefined, source?: Sync, writer?: Sync) {
+  const sameWriter = collectionId && writer?.collectionId === collectionId ? writer : undefined;
+  const baseline = source?.lastMetadataDigest ?? sameWriter?.lastMetadataDigest;
+  return localDigest === baseline && !sameWriter?.pendingPublication &&
+    (!sameWriter?.lastMetadataDigest || localDigest === sameWriter.lastMetadataDigest);
+}
+
 /** Sync manifests use an atomic metadata adapter; full portable backups keep their existing importer. */
 export async function importSyncFile(blob: Blob, options: { automatic?: boolean } = {}): Promise<string> {
   let value: unknown;
@@ -121,9 +129,7 @@ export async function importSyncFile(blob: Blob, options: { automatic?: boolean 
       if (options.automatic && context) {
         const current = await db.syncs.get(context.sync.id!);
         const writer = await db.syncs.where('type').equals('to').first();
-        const baseline = current?.lastMetadataDigest ?? (writer?.collectionId === snapshot.collectionId ? writer.lastMetadataDigest : undefined);
-        if (!baseline || writer?.collectionId === snapshot.collectionId && writer.pendingPublication ||
-            await Dexie.waitFor(localMetadataDigest()) !== baseline) {
+        if (!matchesAutomaticImportBaseline(await Dexie.waitFor(localMetadataDigest()), snapshot.collectionId, current, writer)) {
           throw new Error('Local changes need confirmation. Import manually in Sync settings; current data is retained.');
         }
       }
@@ -169,11 +175,9 @@ export async function checkAndTriggerAutoSync(): Promise<{ blob: Blob; diffsResu
   try {
     const result = await syncFromDb();
     const writer = await db.syncs.where('type').equals('to').first();
-    const baseline = sync.lastMetadataDigest ?? (writer?.collectionId === sync.collectionId ? writer?.lastMetadataDigest : undefined);
     let needsConfirmation = true;
-    if (baseline && !(writer?.collectionId === sync.collectionId && writer?.pendingPublication)) {
-      try { needsConfirmation = await localMetadataDigest() !== baseline; } catch { /* Retain unresolved originals. */ }
-    }
+    try { needsConfirmation = !matchesAutomaticImportBaseline(await localMetadataDigest(), sync.collectionId, sync, writer); }
+    catch { /* Retain unresolved originals. */ }
     needsConfirmation ||= hasRestaurantChanges(result.diffsResult);
     return { ...result, outcome: 'SUCCESS', needsConfirmation };
   }
