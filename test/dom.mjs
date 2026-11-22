@@ -17,3 +17,5 @@ vi.stubGlobal('FileReader', class {
       error => { this.error = error; this.onerror?.({ target: this }); });
   }
 });
+// jsdom has no pixel decoder. Browser e2e exercises decoding and canvas encoding.
+vi.stubGlobal('createImageBitmap', async () => ({ width: 1, height: 1, close() {} }));

@@ -536,7 +536,7 @@ test('canonical byte, asset and total-row cloud boundaries agree in both validat
 test('hidden menu-only asset is reachable independently, backups preserve it and invalid restore is atomic', async () => {
   const rid = await saveRestaurant(restaurant());
   const ref = await cacheImage(
-    new File([image(), 'extra menu bytes'], 'menu.png', { type: 'image/png' })
+    new File([image()], 'menu.png', { type: 'image/png' })
   );
   await db.restaurants.update(rid, { menuImages: [ref] });
   expect(await db.restaurantItems.count()).toBe(0);

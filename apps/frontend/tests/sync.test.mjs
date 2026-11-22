@@ -3,9 +3,9 @@ import { db } from '../src/db/db.ts';
 import { cacheImage } from '../src/db/image-cache.ts';
 import { getExportBlob } from '../src/util/db/export.ts';
 import { syncTo } from '../src/util/sync.ts';
-import { syncFromDb, saveSyncFromLocation, importSyncFile } from '../src/util/sync-from.ts';
+import { syncFromDb, saveSyncFromLocation, importSyncFile, checkAndTriggerAutoSync } from '../src/util/sync-from.ts';
 import { hydrateSnapshot } from '../src/util/sync/hydrate.ts';
-import { freezeSnapshot } from '../src/util/sync/snapshot-adapter.ts';
+import { freezeSnapshot, localMetadataDigest } from '../src/util/sync/snapshot-adapter.ts';
 import { parseLocation, readPermission, consumeIncomingLocation } from '../src/util/sync/location.ts';
 import { boundedJson, v2Post } from '../src/util/sync/api.ts';
 import { createShareLink } from '../src/util/sync/share.ts';
@@ -13,8 +13,9 @@ import { createApp } from '../../go-groceries-images-meal-resolver/src/index.ts'
 import { createStorage } from '../../../test/memory-storage.mjs';
 import { cleanDatabase, meal, image } from './helpers.mjs';
 cleanDatabase();
-let storage, fetchMock;
+let storage, fetchMock, rejectContainer;
 beforeEach(async () => {
+  rejectContainer = false;
   storage = createStorage(); const app = createApp({client:()=>storage.client,sign:storage.sign,now:Date.now});
   fetchMock = vi.fn(async (input,options = {}) => {
     const url = new URL(String(input));
@@ -22,6 +23,10 @@ beforeEach(async () => {
     if (url.pathname.startsWith('/objects/')) return storage.objectFetch(url,options);
     storage.events.push({action:'API',key:url.pathname});
     if (url.pathname === '/v2/snapshots/publish' && storage.controls.failPublish > 0) {storage.controls.failPublish--;return new Response('',{status:400});}
+    if (url.pathname === '/v2/images/complete' && rejectContainer) {
+      rejectContainer = false;
+      return Response.json({ error: 'Invalid image container or dimensions' }, { status: 400 });
+    }
     return app.fetch(new Request(url,options),storage.env);
   });
   vi.stubGlobal('fetch',fetchMock);
@@ -130,10 +135,63 @@ test('cloud conflict is not retried and temporary server errors are retried', as
   const transient = vi.fn().mockResolvedValueOnce(new Response('',{status:503})).mockResolvedValueOnce(new Response('{}'));
   vi.stubGlobal('fetch',transient); expect(await v2Post('snapshots/latest',{}, {pass:'fake'})).toEqual({}); expect(transient).toHaveBeenCalledTimes(2);
 });
-test('unsupported/oversize local images block publishing and retain originals', async () => {
-  const ref = await cacheImage(new Blob(['GIF89a'],{type:'image/gif'})); await db.recipes.put({id:1,mealId:1,images:[ref],url:'',notes:''});
-  await expect(freezeSnapshot(crypto.randomUUID(),crypto.randomUUID())).rejects.toThrow('unsupported image type');
+test('unsupported local images are skipped, name the affected meal, and retain originals', async () => {
+  const ref = await cacheImage(new Blob(['GIF89a'],{type:'image/gif'})); await db.meals.put(meal());
+  await db.recipes.put({id:1,mealId:1,images:[ref],url:'',notes:''});
+  const frozen = await freezeSnapshot(crypto.randomUUID(),crypto.randomUUID());
+  expect(frozen.snapshot.assets).toEqual([]);
+  expect(frozen.warnings).toEqual(['Photo skipped for recipe “Soup”. Only JPEG, PNG and static WebP photos can sync.']);
   expect(await db.imageAssets.get(ref.assetId)).toBeDefined(); expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test('a new Worker container rejection names the photo and stays omitted across a failed repair attempt', async () => {
+  const ref = await seed();
+  rejectContainer = true;
+  await expect(syncTo({ automatic: false })).rejects.toThrow('container or dimensions of a photo for meal “Soup”');
+  const before = (await db.syncs.where('type').equals('to').first()).pendingPublication;
+  storage.controls.failPublish = 1;
+  await expect(syncTo({ automatic: false })).rejects.toThrow('400');
+  const repaired = (await db.syncs.where('type').equals('to').first()).pendingPublication;
+  expect(repaired.snapshot.snapshotId).not.toBe(before.snapshot.snapshotId);
+  expect(repaired.expectedRevision).toBe(before.expectedRevision);
+  const onWarning = vi.fn();
+  await syncTo({ automatic: false, onWarning });
+  expect(onWarning).toHaveBeenCalledWith(expect.stringContaining('Cloud storage rejected its container or dimensions.'));
+  expect(published().assets).toEqual([]);
+  expect((await db.meals.get(1)).images[0].assetId).toBe(ref.assetId);
+  await syncTo({ automatic: false });
+  expect(published().assets).toEqual([]);
+  expect(storage.events.filter(e => e.action === 'SIGNED_PUT')).toHaveLength(1);
+});
+
+test('a missing frozen photo can recover once the live meal removes its reference', async () => {
+  const ref = await seed();
+  fetchMock.mockImplementationOnce(async () => new Response(null, { status: 400 }));
+  await expect(syncTo({ automatic: false })).rejects.toThrow('400');
+  const stale = (await db.syncs.where('type').equals('to').first()).pendingPublication;
+  await db.meals.update(1, { images: [], name: 'Updated soup' });
+  await db.recipes.update(20, { images: [] });
+  await db.imageAssets.delete(ref.assetId);
+  await expect(syncTo({ automatic: false })).rejects.toThrow(/A photo for meal “Soup”.*is missing/);
+  await syncTo({ automatic: false });
+  expect(published().snapshotId).not.toBe(stale.snapshot.snapshotId);
+  expect(published().data.tables.meals[0].name).toBe('Updated soup');
+});
+
+test('automatic import of the writer collection protects original photo references and warning labels are redacted', async () => {
+  const ref = await cacheImage(new Blob(['GIF89a'], { type: 'image/gif' }));
+  await db.meals.put({ ...meal(1, 'Garden soup //private.example/path token=short /settings?shareToken=mini-secret mailto:private@localhost 123456'), images: [{ ...ref, type: 'asset' }] });
+  const onWarning = vi.fn();
+  const url = await syncTo({ automatic: false, onWarning });
+  expect(onWarning).toHaveBeenCalledWith(expect.stringContaining('for meal “Garden soup”'));
+  expect(onWarning.mock.lastCall[0]).not.toMatch(/private\.example|short|settings|mini-secret|mailto|123456/);
+  await saveSyncFromLocation(url);
+  const source = await db.syncs.where('type').equals('from').first();
+  await db.syncs.update(source.id, { automatic: true, lastMetadataDigest: await localMetadataDigest() });
+  const result = await checkAndTriggerAutoSync();
+  expect(result).toMatchObject({ outcome: 'SUCCESS', needsConfirmation: true });
+  await expect(importSyncFile(result.blob, { automatic: true })).rejects.toThrow('Local changes need confirmation');
+  expect((await db.meals.get(1)).images[0].assetId).toBe(ref.assetId);
 });
 
 test('v1 sync import uses the portable importer and retains embedded bytes', async () => {
@@ -184,4 +242,22 @@ test.each([false, true])('coordinate-bearing schema16 pending publication refres
   writer = await db.syncs.where('type').equals('to').first();
   expect(writer.pendingPublication).toBeUndefined();
   expect(await db.imageAssets.count()).toBe(1);
+});
+
+
+test('obsolete pending replacement reconciles an earlier successful publish with a lost response', async () => {
+  await seed();
+  await syncTo({ automatic: false });
+  const writer = await db.syncs.where('type').equals('to').first();
+  const snapshot = published();
+  snapshot.data.tables.restaurants.push({ latitude: 0 });
+  await db.syncs.update(writer.id, { revision: undefined, snapshotId: undefined,
+    pendingPublication: { snapshot, expectedRevision: null } });
+  await db.meals.update(1, { name: 'Edited after publish' });
+  fetchMock.mockClear();
+  await syncTo({ automatic: false });
+  expect(published().snapshotId).not.toBe(snapshot.snapshotId);
+  expect(published().data.tables.meals[0].name).toBe('Edited after publish');
+  const publishCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/v2/snapshots/publish'));
+  expect(JSON.parse(publishCall[1].body).expectedRevision).toBe(writer.revision);
 });

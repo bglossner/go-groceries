@@ -4,15 +4,32 @@ import { IMAGE_LIMITS, type ImagePrepareResponse, type ImageCompleteResponse } f
 import type { SnapshotHead } from '../shareable/snapshot';
 import { freezeSnapshot, metadataDigest } from './sync/snapshot-adapter';
 import { canonicalJson, parseSnapshot } from './sync/snapshot-validation';
-import { v2Post, writerPermission } from './sync/api';
+import { SyncApiError, v2Post, writerPermission } from './sync/api';
 import { withCloudSyncLock } from './sync/lock';
 import { collectionUrl } from './sync/location';
+import { pendingPhotoIsObsolete, photoRejectionKey } from './sync/image-preflight';
+import { photoOwners } from './sync/snapshot-photos';
 
 export type SyncProgress = (message: string) => void;
-export function syncTo(options: { existingSync?: Sync; automatic: boolean; newLocation?: boolean; onProgress?: SyncProgress }): Promise<string> {
+type SyncToOptions = { existingSync?: Sync; automatic: boolean; newLocation?: boolean; onProgress?: SyncProgress; onWarning?: SyncProgress };
+type PendingPublication = NonNullable<Sync['pendingPublication']> & { imageWarnings?: string[]; needsImageRepair?: true };
+
+export function syncTo(options: SyncToOptions): Promise<string> {
   return withCloudSyncLock(() => publish(options));
 }
-async function publish(options: { existingSync?: Sync; automatic: boolean; newLocation?: boolean; onProgress?: SyncProgress }, followPending = true) {
+
+async function pendingHasObsoletePhotos(pending: PendingPublication) {
+  if (pending.needsImageRepair) return true;
+  if (pending.imageWarnings) return false;
+  for (const expected of pending.snapshot.assets) {
+    const source = await db.imageAssets.get(expected.assetId);
+    // A pending publication can still reuse a verified cloud image missing locally.
+    if (source && await pendingPhotoIsObsolete(source, expected)) return true;
+  }
+  return false;
+}
+
+async function publish(options: SyncToOptions, followPending = true) {
   const progress = options.onProgress ?? (() => undefined);
   const permission = await writerPermission();
   let sync = options.existingSync?.id ? await db.syncs.get(options.existingSync.id) : await db.syncs.where('type').equals('to').first();
@@ -26,22 +43,54 @@ async function publish(options: { existingSync?: Sync; automatic: boolean; newLo
     sync = (await db.syncs.get(id))!;
   }
   const collectionId = sync.collectionId!;
-  const resumedPending = !!sync.pendingPublication;
-  const pendingSnapshot = sync.pendingPublication?.snapshot;
+  let pending: PendingPublication | undefined = sync.pendingPublication;
+  const pendingSnapshot = pending?.snapshot;
   const hasRemovedFields = pendingSnapshot?.data.schemaVersion === 16 &&
     pendingSnapshot.data.tables.restaurants.some(row => 'latitude' in row || 'longitude' in row);
+  const obsoletePhotos = pending && pendingSnapshot?.data.schemaVersion === 16 && !hasRemovedFields && await pendingHasObsoletePhotos(pending);
+  const resumedPending = !!pending && pendingSnapshot?.data.schemaVersion === 16 && !hasRemovedFields && !obsoletePhotos;
   // An obsolete local frozen snapshot needs a fresh immutable ID; keep its revision condition.
-  if (!sync.pendingPublication || pendingSnapshot?.data.schemaVersion === 15 || hasRemovedFields) {
+  if (!pending || pendingSnapshot?.data.schemaVersion === 15 || hasRemovedFields || obsoletePhotos) {
     progress('Preparing metadata and checking local images...');
+    let expectedRevision = pending ? pending.expectedRevision : sync.revision ?? null;
+    if (pendingSnapshot) {
+      // A legacy snapshot may already be latest if the browser lost its publish response.
+      const head = await v2Post<SnapshotHead>('snapshots/latest', { collectionId }, permission).catch(error => {
+        if (error instanceof SyncApiError && error.status === 404) return undefined;
+        throw error;
+      });
+      if (head && head.snapshotId === pendingSnapshot?.snapshotId && /^"[0-9a-f]{32}"$/.test(head.revision)) expectedRevision = head.revision;
+    }
     await runImageMigration();
-    const { snapshot } = await freezeSnapshot(collectionId, crypto.randomUUID());
-    const pendingPublication = { snapshot, expectedRevision: sync.pendingPublication ? sync.pendingPublication.expectedRevision : sync.revision ?? null };
-    await db.syncs.update(sync.id!, { pendingPublication });
-    sync = { ...sync, pendingPublication };
+    const { snapshot, warnings } = await freezeSnapshot(collectionId, crypto.randomUUID());
+    pending = { snapshot, expectedRevision, imageWarnings: warnings };
+    const writerId = sync.id!;
+    const revision = sync.revision;
+    await db.transaction('rw', db.syncs, async () => {
+      const current = await db.syncs.get(writerId);
+      if (current?.collectionId !== collectionId || current.revision !== revision ||
+          current.pendingPublication?.snapshot.snapshotId !== pendingSnapshot?.snapshotId) {
+        throw new Error('Sync state changed while preparing photos. Retry from the current location.');
+      }
+      await db.syncs.update(writerId, { pendingPublication: pending });
+    });
   }
-  const pending = sync.pendingPublication!;
   if (pending.snapshot.data.schemaVersion !== 16 || pending.snapshot.data.adapterVersion !== 2) throw new Error('Older pending snapshot cannot be published. Import the current collection in Sync settings before retrying.');
-  const snapshot = parseSnapshot(pending.snapshot);
+  const publication = pending;
+  const snapshot = parseSnapshot(publication.snapshot);
+  const owners = photoOwners(snapshot.data);
+  const requirePending = async () => {
+    const current = await db.syncs.get(sync!.id!);
+    if (current?.collectionId !== collectionId || current.pendingPublication?.snapshot.snapshotId !== snapshot.snapshotId) {
+      throw new Error('Sync state changed during publication. Retry from the current location.');
+    }
+  };
+  const markForRepair = async (rejectedAssetId?: string) => db.transaction('rw', db.syncs, db.settings, async () => {
+    await requirePending();
+    if (rejectedAssetId) await db.settings.put({ id: photoRejectionKey(collectionId, rejectedAssetId), value: 'true' });
+    const stale: PendingPublication = { ...publication, needsImageRepair: true };
+    await db.syncs.update(sync.id!, { pendingPublication: stale });
+  });
   // Reconcile the authoritative frozen inventory on every attempt, even after remote deletion.
   for (let start = 0; start < snapshot.assets.length; start += IMAGE_LIMITS.batch) {
     const batch = snapshot.assets.slice(start, start + IMAGE_LIMITS.batch);
@@ -53,18 +102,36 @@ async function publish(options: { existingSync?: Sync; automatic: boolean; newLo
       const expected = batch[index];
       if (canonicalJson(item.asset) !== canonicalJson(expected)) throw new Error('Cloud image descriptor mismatch');
       if (item.status === 'upload') {
+        const owner = [...owners.get(expected.assetId)!].join(', ');
         const local = await db.imageAssets.get(expected.assetId);
-        if (!local) throw new Error('A pending image is no longer cached. Sync from its source before retrying.');
-        await verifyCachedAsset(local);
-        if (local.byteLength !== expected.byteLength || local.mimeType !== expected.mimeType) throw new Error('Cached image descriptor mismatch');
+        if (!local) {
+          await markForRepair();
+          throw new Error(`A photo for ${owner} is missing from this device. Sync from its source or remove its reference before retrying.`);
+        }
+        try { await verifyCachedAsset(local); }
+        catch {
+          await markForRepair();
+          throw new Error(`A photo for ${owner} failed its local integrity check. Restore it or retry sync to repair the publication.`);
+        }
+        if (local.byteLength !== expected.byteLength) throw new Error(`A photo for ${owner} does not match the saved size. Restore it before retrying.`);
+        const body = local.mimeType === expected.mimeType ? local.blob : local.blob.slice(0, local.byteLength, expected.mimeType);
         progress(`Uploading new image ${start + index + 1} of ${snapshot.assets.length}...`);
         // The random staging URL and completion capability remain in memory only.
         let response: Response;
-        try { response = await fetch(item.transfer.url, { method: 'PUT', body: local.blob, headers: item.headers,
+        try { response = await fetch(item.transfer.url, { method: 'PUT', body, headers: item.headers,
           cache: 'no-store', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(30000) }); }
-        catch { throw new Error('Image upload interrupted. Retry sync to reconcile uploaded images.'); }
-        if (!response.ok) throw new Error('Image staging upload failed. Retry sync for a fresh transfer.');
-        const completed = await v2Post<ImageCompleteResponse>('images/complete', { uploadToken: item.uploadToken }, permission);
+        catch { throw new Error(`Upload interrupted for ${owner}. Retry sync to reconcile uploaded images.`); }
+        if (!response.ok) throw new Error(`Image staging upload failed for ${owner}. Retry sync for a fresh transfer.`);
+        const completed = await v2Post<ImageCompleteResponse>('images/complete', { uploadToken: item.uploadToken }, permission).catch(async error => {
+          if (error instanceof SyncApiError && error.imageRejection === 'container') {
+            await markForRepair(expected.assetId);
+            throw new Error(`Cloud storage rejected the container or dimensions of a photo for ${owner}. Retry sync to continue without it.`);
+          }
+          if (error instanceof SyncApiError && error.status === 400) {
+            throw new Error(`Cloud storage could not verify a photo for ${owner}. Retry sync.`);
+          }
+          throw error;
+        });
         if (canonicalJson(completed.asset) !== canonicalJson(expected)) throw new Error('Verified image descriptor mismatch');
       } else if (item.status !== 'existing') throw new Error('Invalid image preparation status');
       await db.transaction('rw', db.imageUploadJobs, async () => {
@@ -74,19 +141,13 @@ async function publish(options: { existingSync?: Sync; automatic: boolean; newLo
       });
     }
   }
-  const requirePending = async () => {
-    const current = await db.syncs.get(sync!.id!);
-    if (current?.collectionId !== collectionId || current.pendingPublication?.snapshot.snapshotId !== snapshot.snapshotId) {
-      throw new Error('Sync state changed during publication. Retry from the current location.');
-    }
-  };
   await requirePending();
   progress('Committing metadata snapshot...');
   await v2Post('snapshots/commit', { snapshot }, permission);
   await requirePending();
   progress('Publishing latest snapshot...');
   const head = await v2Post<SnapshotHead>('snapshots/publish', { collectionId, snapshotId: snapshot.snapshotId,
-    expectedRevision: pending.expectedRevision }, permission);
+    expectedRevision: publication.expectedRevision }, permission);
   if (head.snapshotId !== snapshot.snapshotId || !/^"[0-9a-f]{32}"$/.test(head.revision)) throw new Error('Invalid latest revision response');
   const lastMetadataDigest = await metadataDigest(snapshot.data.tables);
   await db.transaction('rw', db.syncs, async () => {
@@ -101,6 +162,9 @@ async function publish(options: { existingSync?: Sync; automatic: boolean; newLo
   // A recovered frozen revision may predate later local edits. Publish a fresh revision
   // before acknowledging the caller's queue, including after a browser restart.
   if (resumedPending && followPending) return publish(options, false);
-  progress(`Synced metadata; ${snapshot.assets.length} verified cloud images. Unchanged images were reused.`);
+  const warnings = publication.imageWarnings ?? [];
+  const warning = warnings.length ? `${warnings.join(' ')} Originals are kept on this device.` : '';
+  progress([`Synced metadata; ${snapshot.assets.length} verified cloud images. Unchanged images were reused.`, warning].filter(Boolean).join(' '));
+  if (warning) options.onWarning?.(warning);
   return collectionUrl(collectionId);
 }

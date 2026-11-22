@@ -1,12 +1,14 @@
 import { db, MySubClassedDexie, type LocalImageAsset, type Recipe, type PendingRecipe, type Meal } from '../../db/db';
 import { addDateConverterHooks } from '../../db/date-converter';
-import { hashBlob, isAssetRef, verifyCachedAsset } from '../../db/image-cache';
-import { IMAGE_LIMITS, IMAGE_MIME_TYPES, type ImageRef, type ImageMimeType } from '../../shareable/image-assets';
+import { hashBlob, isAssetRef } from '../../db/image-cache';
+import type { ImageRef } from '../../shareable/image-assets';
 import { SNAPSHOT_TABLES, type Snapshot, type SnapshotRows } from '../../shareable/snapshot';
 import { canonicalJson, makeAsset, parseSnapshot } from './snapshot-validation';
 import { getDiffOfDbs } from '../db/import';
+import { photoRejectionKey, preparePhoto, type PreparedPhoto } from './image-preflight';
+import { photoOwner, photoOwners, updatePhotoReferences } from './snapshot-photos';
 
-const imageRef = (image: unknown): ImageRef => {
+const imageRef = (image: unknown, owner: string): ImageRef => {
   if (isAssetRef(image)) return { kind: 'asset', assetId: image.assetId,
     ...(image.name === undefined ? {} : { name: image.name }),
     ...(image.lastModified === undefined ? {} : { lastModified: image.lastModified }) };
@@ -14,17 +16,19 @@ const imageRef = (image: unknown): ImageRef => {
   if (image && typeof image === 'object' && 'type' in image && image.type === 'url' && 'url' in image && typeof image.url === 'string') {
     return { kind: 'externalUrl', url: image.url };
   }
-  throw new Error('Unresolved image slot; original images have been retained. Finish image conversion before syncing.');
+  throw new Error(`A photo for ${owner} could not be read from its legacy image slot. Finish image recovery before syncing.`);
 };
 
 type MetadataRows = { recipes: Recipe[]; pendingRecipes: PendingRecipe[]; meals: Meal[] } & Record<string, unknown[]>;
 function normalizedTables(rows: MetadataRows): SnapshotRows {
   const tables = JSON.parse(JSON.stringify(rows)) as SnapshotRows;
-    tables.recipes = rows.recipes.map((row: Recipe) => ({ ...row, images: row.images.map(imageRef) })) as SnapshotRows['recipes'];
-    tables.pendingRecipes = rows.pendingRecipes.map((row: PendingRecipe) => ({ ...row, createdAt: new Date(row.createdAt).toISOString(), images: row.images?.map(imageRef) })) as SnapshotRows['pendingRecipes'];
-    tables.meals = rows.meals.map((row: Meal) => ({ ...row, createdAt: new Date(row.createdAt).toISOString(), updatedAt: new Date(row.updatedAt).toISOString(),
+  const meals = new Map(rows.meals.map(meal => [meal.id, meal.name]));
+  const pendingMeals = new Map(rows.meals.filter(meal => meal.pendingRecipeId).map(meal => [meal.pendingRecipeId, meal.name]));
+  tables.recipes = rows.recipes.map((row: Recipe) => ({ ...row, images: row.images.map(image => imageRef(image, photoOwner('recipe', meals.get(row.mealId)))) })) as SnapshotRows['recipes'];
+  tables.pendingRecipes = rows.pendingRecipes.map((row: PendingRecipe) => ({ ...row, createdAt: new Date(row.createdAt).toISOString(), images: row.images?.map(image => imageRef(image, photoOwner('draft recipe', pendingMeals.get(row.id)))) })) as SnapshotRows['pendingRecipes'];
+  tables.meals = rows.meals.map((row: Meal) => ({ ...row, createdAt: new Date(row.createdAt).toISOString(), updatedAt: new Date(row.updatedAt).toISOString(),
       images: row.images?.map((image) => ({
-        ...(image.type === 'recipeImage' ? { kind: 'recipeImage' as const, recipeId: image.recipeId, imageIndex: image.imageIndex } : imageRef(image)),
+        ...(image.type === 'recipeImage' ? { kind: 'recipeImage' as const, recipeId: image.recipeId, imageIndex: image.imageIndex } : imageRef(image, photoOwner('meal', row.name))),
         ...(image.isThumbnail === undefined ? {} : { isThumbnail: image.isThumbnail }),
       })),
     })) as SnapshotRows['meals'];
@@ -49,31 +53,36 @@ export async function freezeSnapshot(collectionId: string, snapshotId: string) {
   const frozen = await db.transaction('r', [...SNAPSHOT_TABLES.map(name => db.table(name)), db.imageAssets], async () => {
     const rows = Object.fromEntries(await Promise.all(SNAPSHOT_TABLES.map(async name => [name, await db.table(name).toArray()])));
     const tables = normalizedTables(rows as MetadataRows);
-    const referenced = new Set<string>();
-    for (const row of [...tables.meals, ...tables.recipes, ...tables.pendingRecipes, ...tables.restaurantItems, ...tables.restaurants.map(r => ({images:r.menuImages}))]) {
-      for (const image of row.images ?? []) if (image.kind === 'asset') referenced.add(image.assetId);
-    }
+    const data = { schemaVersion: 16, adapterVersion: 2, tables } as const;
+    const owners = photoOwners(data);
     const copies = new Map<string, LocalImageAsset>();
-    for (const assetId of referenced) {
+    for (const [assetId, names] of owners) {
       const asset = await db.imageAssets.get(assetId);
-      if (!asset) throw new Error('An image is not cached. Sync from its source before publishing.');
+      if (!asset) throw new Error(`A photo for ${[...names].join(', ')} is missing from this device. Sync from its source before publishing.`);
       copies.set(assetId, asset);
     }
-    return { tables, copies };
+    return { data, copies, owners };
   });
-  const issues: string[] = [];
-  for (const asset of frozen.copies.values()) {
-    if (!IMAGE_MIME_TYPES.includes(asset.mimeType as ImageMimeType)) issues.push('unsupported image type');
-    if (asset.byteLength < 1 || asset.byteLength > IMAGE_LIMITS.byteLength) issues.push('image exceeds the 4 MiB limit or is empty');
-    await verifyCachedAsset(asset);
+  const photos = new Map<string, PreparedPhoto>();
+  const warnings = new Set<string>();
+  for (const [assetId, source] of frozen.copies) {
+    const names = [...frozen.owners.get(assetId)!].join(', ');
+    try {
+      const photo = await preparePhoto(source);
+      if ('reason' in photo) warnings.add(`Photo skipped for ${names}. ${photo.reason}`);
+      else if (await db.settings.get(photoRejectionKey(collectionId, photo.assetId))) {
+        warnings.add(`Photo skipped for ${names}. Cloud storage rejected its container or dimensions.`);
+      } else photos.set(assetId, photo);
+    } catch {
+      throw new Error(`A cloud photo for ${names} could not be prepared in local storage. Retry sync.`);
+    }
   }
-  if (issues.length) throw new Error(`Cloud sync blocked: ${Array.from(new Set(issues)).join('; ')}. Original images are retained; no images were uploaded.`);
-  const assets = [...frozen.copies.values()].map(asset => makeAsset(collectionId, {
-    sha256: asset.assetId, mimeType: asset.mimeType as ImageMimeType, byteLength: asset.byteLength,
-  }));
-  const snapshot = parseSnapshot({ format: 'go-groceries-snapshot', version: 2, collectionId, snapshotId, assets,
-    data: { schemaVersion: 16, adapterVersion: 2, tables: frozen.tables } });
-  return { snapshot, copies: frozen.copies };
+  updatePhotoReferences(frozen.data.tables, photos);
+  const unique = new Map([...photos.values()].map(photo => [photo.assetId, photo]));
+  const assets = [...unique.values()].map(({ assetId, mimeType, byteLength }) =>
+    makeAsset(collectionId, { sha256: assetId, mimeType, byteLength }));
+  const snapshot = parseSnapshot({ format: 'go-groceries-snapshot', version: 2, collectionId, snapshotId, assets, data: frozen.data });
+  return { snapshot, warnings: [...warnings] };
 }
 
 export function localTables(snapshot: Snapshot) {
