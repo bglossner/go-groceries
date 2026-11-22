@@ -11,6 +11,13 @@
 		"enabled": true
 	},
   "workers_dev": true,
+  "r2_buckets": [
+    {
+      "binding": "IMAGES_BUCKET",
+      // Placeholder. Replace with the same bucket name used by R2_BUCKET_NAME before deployment.
+      "bucket_name": "replace-with-existing-r2-bucket-name"
+    }
+  ],
 	"vars": {
     "ENABLE_PASS": "true",
     "CORS_ALLOWED_ORIGINS": "http://localhost:5173,https://go-groceries.s3.us-east-1.amazonaws.com,https://go-groceries-test.s3.us-east-1.amazonaws.com"
