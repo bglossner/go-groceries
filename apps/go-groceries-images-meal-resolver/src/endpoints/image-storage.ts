@@ -159,7 +159,7 @@ export function imageStorageEndpoints(app: AppType, deps: StorageDependencies = 
     const serialized = canonicalJson(snapshot);
     const bytes = new TextEncoder().encode(serialized);
     if (bytes.length > SNAPSHOT_LIMITS.byteLength) throw new ErrorWrapper({ message: 'Snapshot exceeds size limit', statusCode: 413 });
-    for (const asset of snapshot.assets) if (!await storage.verifiedAsset(asset)) throw notFound();
+    if (!await storage.verifiedAssets(snapshot.collectionId, snapshot.assets)) throw notFound();
     const key = snapshotKey(snapshot.collectionId, snapshot.snapshotId);
     try {
       await storage.put(key, bytes, { ContentType: 'application/json', IfNoneMatch: '*' });

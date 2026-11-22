@@ -5,6 +5,7 @@ import type { ImageAsset } from '@go-groceries/frontend/image-assets';
 import { AppContext, ErrorWrapper } from '../types';
 import { getS3Client } from '../file-upload/s3-client';
 import { logStorageError } from '../file-upload/storage-error';
+import { imagePrefix } from './validation';
 
 export type StorageDependencies = {
   client: (c: AppContext) => S3Client;
@@ -40,6 +41,12 @@ export async function readBounded(stream: ReadableStream<Uint8Array>, limit: num
   let offset = 0;
   for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
   return result;
+}
+
+function assertAssetDescriptor(asset: ImageAsset, sha256?: string, byteLength?: number, mimeType?: string): void {
+  if (sha256 !== asset.sha256 || byteLength !== asset.byteLength || mimeType !== asset.mimeType) {
+    throw new ErrorWrapper({ message: 'Asset descriptor conflicts with stored object', statusCode: 409 });
+  }
 }
 
 export class ObjectStorage {
@@ -91,8 +98,39 @@ export class ObjectStorage {
   async verifiedAsset(asset: ImageAsset): Promise<boolean> {
     const head = await this.head(asset.location.key);
     if (!head) return false;
-    if (head.Metadata?.['verified-sha256'] !== asset.sha256 || head.ContentLength !== asset.byteLength || head.ContentType !== asset.mimeType) {
-      throw new ErrorWrapper({ message: 'Asset descriptor conflicts with stored object', statusCode: 409 });
+    assertAssetDescriptor(asset, head.Metadata?.['verified-sha256'], head.ContentLength, head.ContentType);
+    return true;
+  }
+  async verifiedAssets(collectionId: string, assets: readonly ImageAsset[]): Promise<boolean> {
+    const prefix = imagePrefix(collectionId);
+    const expectedKeys = new Set(assets.map(asset => asset.location.key));
+    const listedAssets = new Map<string, R2Object>();
+    let cursor: string | undefined;
+    let truncated = true;
+    let lastListedKey = '';
+
+    for (const asset of assets) {
+      const key = asset.location.key;
+      // R2 sorts keys lexicographically. Read only the pages needed to decide this asset,
+      // so a later page failure cannot hide an earlier missing or mismatched asset.
+      while (truncated && lastListedKey < key) {
+        let page: R2Objects;
+        try {
+          page = await this.c.env.IMAGES_BUCKET.list({ prefix, cursor, include: ['httpMetadata', 'customMetadata'] });
+        } catch (error) {
+          logStorageError(this.c, 'ListObjects', error);
+          throw error;
+        }
+        for (const object of page.objects) {
+          if (expectedKeys.has(object.key)) listedAssets.set(object.key, object);
+        }
+        lastListedKey = page.objects.at(-1)?.key ?? lastListedKey;
+        truncated = page.truncated;
+        cursor = page.truncated ? page.cursor : undefined;
+      }
+      const object = listedAssets.get(key);
+      if (!object) return false;
+      assertAssetDescriptor(asset, object.customMetadata?.['verified-sha256'], object.size, object.httpMetadata?.contentType);
     }
     return true;
   }

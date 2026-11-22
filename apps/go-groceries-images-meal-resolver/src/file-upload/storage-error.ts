@@ -1,6 +1,6 @@
 import type { AppContext } from '../types';
 
-type StorageOperation = 'HeadObject' | 'GetObject' | 'PutObject' | 'DeleteObject' | 'PresignGetObject' | 'PresignPutObject' | 'FileRetrieval';
+type StorageOperation = 'HeadObject' | 'ListObjects' | 'GetObject' | 'PutObject' | 'DeleteObject' | 'PresignGetObject' | 'PresignPutObject' | 'FileRetrieval';
 type ErrorDetails = {
   name?: unknown; Code?: unknown; code?: unknown; message?: unknown; cause?: unknown;
   $metadata?: { httpStatusCode?: unknown; requestId?: unknown; extendedRequestId?: unknown; cfId?: unknown };

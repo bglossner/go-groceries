@@ -1,11 +1,34 @@
 import { createHash, randomUUID } from 'node:crypto';
+
+export function memoryR2Bucket(objects, contentType = object => object.type) {
+  return {
+    async list({ prefix = '', cursor, include = [], limit = 1000 } = {}) {
+      const keys = [...objects.keys()].filter(key => key.startsWith(prefix)).sort();
+      const start = Number(cursor ?? 0);
+      const end = start + limit;
+      const page = keys.slice(start, end).map(key => {
+        const object = objects.get(key);
+        return {
+          key,
+          size: object.reportedLength ?? object.bytes.length,
+          ...(include.includes('httpMetadata') && { httpMetadata: { contentType: contentType(object) } }),
+          ...(include.includes('customMetadata') && { customMetadata: object.metadata ?? {} }),
+        };
+      });
+      return end < keys.length
+        ? { objects: page, truncated: true, cursor: String(end) }
+        : { objects: page, truncated: false };
+    },
+  };
+}
+
 // Implements the S3 commands used by the real Worker; all state is synthetic memory.
 export function createStorage(base = 'http://127.0.0.1:18927') {
   const objects = new Map(), tickets = new Map(), events = [];
   const controls = {expireGet:0,corruptGet:0,failPublish:0};
   const env = {ENABLE_PASS:'true', PASS:'test-writer-pass', CAPABILITY_SECRET:'synthetic-server-only-capability-signing-key',
     R2_BUCKET_NAME:'synthetic-bucket',R2_ACCOUNT_ID:'synthetic-account',R2_ACCESS_KEY_ID:'synthetic-key',R2_ACCESS_KEY_SECRET:'synthetic-secret',
-    CORS_ALLOWED_ORIGINS:'http://127.0.0.1:18926'};
+    CORS_ALLOWED_ORIGINS:'http://127.0.0.1:18926', IMAGES_BUCKET:memoryR2Bucket(objects)};
   const etag = bytes => '"' + createHash('md5').update(bytes).digest('hex') + '"';
   const failure = status => Object.assign(new Error('Synthetic storage failure'),{$metadata:{httpStatusCode:status}});
   const metadata = object => ({ContentLength:object.bytes.length, ContentType:object.type, Metadata:object.metadata ?? {}, ETag:etag(object.bytes)});

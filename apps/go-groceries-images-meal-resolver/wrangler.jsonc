@@ -11,6 +11,13 @@
 		"enabled": true
 	},
   "workers_dev": true,
+  "r2_buckets": [
+    {
+      "binding": "IMAGES_BUCKET",
+      // Must match R2_BUCKET_NAME.
+      "bucket_name": "go-groceries-uploads"
+    }
+  ],
 	"vars": {
     "ENABLE_PASS": "true",
     "CORS_ALLOWED_ORIGINS": "http://localhost:5173,https://go-groceries.s3.us-east-1.amazonaws.com,https://go-groceries-test.s3.us-east-1.amazonaws.com"
