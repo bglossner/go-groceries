@@ -1,5 +1,6 @@
 import { db } from '../../db/db';
 import { SNAPSHOT_LIMITS } from '../../shareable/snapshot';
+import { networkOutcome, safely, startAttempt, type ObserveAttempt } from './diagnostics';
 
 export class SyncApiError extends Error {
   status: number;
@@ -35,8 +36,10 @@ export async function boundedJson(response: Response, limit = SNAPSHOT_LIMITS.by
   catch { throw new Error('Invalid sync JSON'); }
 }
 /** Responses/requests may contain credentials: never include them in errors or logs. */
-export async function v2Post<T>(path: string, body: object, permission: ReadPermission, retry = true): Promise<T> {
+export async function v2Post<T>(path: string, body: object, permission: ReadPermission, retry = true, observe?: ObserveAttempt): Promise<T> {
   for (let attempt = 0; ; attempt++) {
+    const record = startAttempt(observe);
+    let status: number | undefined;
     try {
       const response = await fetch(`${import.meta.env.VITE_FILE_SYNC_BASE_URL}/v2/${path}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json',
@@ -44,17 +47,27 @@ export async function v2Post<T>(path: string, body: object, permission: ReadPerm
         body: JSON.stringify({ ...body, ...('pass' in permission ? { pass: permission.pass } : {}) }),
         cache: 'no-store', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(30000),
       });
+      status = response.status;
+      safely(() => record?.('response', status));
       if (!response.ok) {
         if (path === 'images/complete' && response.status === 400) {
           const body = await boundedJson(response, 512).catch(() => undefined);
-          if (body && typeof body === 'object' && 'error' in body && body.error === 'Invalid image container or dimensions') {
-            throw new SyncApiError(response.status, 'container');
-          }
+          const message = workerError(body);
+          safely(() => record?.('response', status, message));
+          if (message === 'Invalid image container or dimensions') throw new SyncApiError(response.status, 'container');
+        } else if (record) {
+          // Sync ignores these bodies. Read only a small error body off the critical path.
+          void boundedJson(response, 512).then(body => {
+            safely(() => record('response', status, workerError(body)));
+          }).catch(() => undefined);
         }
         throw new SyncApiError(response.status);
       }
       return await boundedJson(response) as T;
     } catch (error) {
+      if (!(error instanceof SyncApiError)) {
+        safely(() => record?.(status === undefined ? networkOutcome(error) : 'invalid', status));
+      }
       const transient = !(error instanceof SyncApiError) || [408, 429, 500, 502, 503, 504].includes(error.status);
       if (!retry || !transient || attempt >= 2) {
         if (error instanceof SyncApiError) throw error;
@@ -63,4 +76,8 @@ export async function v2Post<T>(path: string, body: object, permission: ReadPerm
       await new Promise(resolve => window.setTimeout(resolve, 300 * 2 ** attempt + Math.random() * 150));
     }
   }
+}
+
+function workerError(body: unknown) {
+  return body && typeof body === 'object' && 'error' in body ? body.error : undefined;
 }

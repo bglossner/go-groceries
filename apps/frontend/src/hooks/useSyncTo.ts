@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { db, type Sync } from '../db/db';
 import { syncTo } from '../util/sync';
+import type { SyncTrigger } from '../util/sync/diagnostics-model';
 import { useDiffsModal } from './useDiffsModal';
 import { useToast } from './useToast';
 
-interface SyncToOptions { existingSyncTo?: Sync; automatic: boolean; newLocation?: boolean }
+interface SyncToOptions { existingSyncTo?: Sync; automatic: boolean; newLocation?: boolean; trigger: SyncTrigger }
 export const useSyncTo = () => {
   const queryClient = useQueryClient();
   const [progress, setProgress] = useState('');

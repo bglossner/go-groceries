@@ -5,6 +5,6 @@ export async function checkAndTriggerAutoSyncTo(onWarning?: SyncProgress): Promi
   const sync = await db.syncs.where('type').equals('to').first();
   if (sync?.format !== 'v2' || !sync.automatic) return null;
   if (!sync.pendingPublication && sync.lastSyncedAt && Date.now() - sync.lastSyncedAt.getTime() < 3600000) return { type: 'NO_SYNC' };
-  try { await syncTo({ existingSync: sync, automatic: true, onWarning }); return { type: 'SUCCESS' }; }
+  try { await syncTo({ existingSync: sync, automatic: true, onWarning, trigger: 'scheduled' }); return { type: 'SUCCESS' }; }
   catch (error) { return { type: 'ERROR', message: error instanceof Error ? error.message : 'Automatic sync failed.' }; }
 }

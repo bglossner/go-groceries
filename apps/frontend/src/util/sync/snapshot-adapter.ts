@@ -7,6 +7,10 @@ import { canonicalJson, makeAsset, parseSnapshot } from './snapshot-validation';
 import { getDiffOfDbs } from '../db/import';
 import { photoRejectionKey, preparePhoto, type PreparedPhoto } from './image-preflight';
 import { photoOwner, photoOwners, updatePhotoReferences } from './snapshot-photos';
+import { diagnosticImage, photoAttribution, type ObservedImage } from './diagnostic-photos';
+import { safely, type SyncRecorder } from './diagnostics';
+
+type FreezeDiagnostics = { recorder: SyncRecorder; pass: string; observed: Map<string, ObservedImage> };
 
 const imageRef = (image: unknown, owner: string): ImageRef => {
   if (isAssetRef(image)) return { kind: 'asset', assetId: image.assetId,
@@ -49,7 +53,7 @@ export async function localMetadataDigest() {
 }
 
 /** Freeze metadata and bytes in the same read transaction; hashing/network occur afterwards. */
-export async function freezeSnapshot(collectionId: string, snapshotId: string) {
+export async function freezeSnapshot(collectionId: string, snapshotId: string, diagnostics?: FreezeDiagnostics) {
   const frozen = await db.transaction('r', [...SNAPSHOT_TABLES.map(name => db.table(name)), db.imageAssets], async () => {
     const rows = Object.fromEntries(await Promise.all(SNAPSHOT_TABLES.map(async name => [name, await db.table(name).toArray()])));
     const tables = normalizedTables(rows as MetadataRows);
@@ -63,16 +67,27 @@ export async function freezeSnapshot(collectionId: string, snapshotId: string) {
     }
     return { data, copies, owners };
   });
+  const attribution = safely(() => diagnostics && photoAttribution(frozen.data, diagnostics.pass));
   const photos = new Map<string, PreparedPhoto>();
   const warnings = new Set<string>();
+  let index = 0;
   for (const [assetId, source] of frozen.copies) {
+    index++;
     const names = [...frozen.owners.get(assetId)!].join(', ');
     try {
       const photo = await preparePhoto(source);
-      if ('reason' in photo) warnings.add(`Photo skipped for ${names}. ${photo.reason}`);
-      else if (await db.settings.get(photoRejectionKey(collectionId, photo.assetId))) {
-        warnings.add(`Photo skipped for ${names}. Cloud storage rejected its container or dimensions.`);
-      } else photos.set(assetId, photo);
+      const reason = 'reason' in photo ? photo.reason : await db.settings.get(photoRejectionKey(collectionId, photo.assetId))
+        ? 'Cloud storage rejected its container or dimensions.' : undefined;
+      if (reason) {
+        warnings.add(`Photo skipped for ${names}. ${reason}`);
+        safely(() => diagnostics?.recorder.warning('skipped', {
+          reason, image: diagnosticImage(index, frozen.copies.size, 'assetId' in photo ? photo : source,
+            attribution?.get(assetId), photo.observed),
+        }));
+      } else if ('assetId' in photo) {
+        photos.set(assetId, photo);
+        safely(() => { if (photo.observed) diagnostics?.observed.set(photo.assetId, photo.observed); });
+      }
     } catch {
       throw new Error(`A cloud photo for ${names} could not be prepared in local storage. Retry sync.`);
     }

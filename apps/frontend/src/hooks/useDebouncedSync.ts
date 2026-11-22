@@ -33,7 +33,7 @@ export const useDebouncedSync = () => {
       if (uploading.current) { setRetry(value => value + 1); return; }
       uploading.current = true;
       try {
-        await mutateAsync({ existingSyncTo, automatic: true });
+        await mutateAsync({ existingSyncTo, automatic: true, trigger: 'debounced' });
         acknowledge(queue.length); setRetry(0);
       } catch {
         // Failed publication retains queued changes and its durable pending snapshot.

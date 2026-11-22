@@ -8,6 +8,7 @@ import { parseLocation } from '../util/sync/location';
 import { createShareLink } from '../util/sync/share';
 import { useDiffsModal } from '../hooks/useDiffsModal';
 import { useSyncTo } from '../hooks/useSyncTo';
+import { SyncLogDialog } from './SyncLogDialog';
 
 export const SyncSettings: React.FC = () => {
   const queryClient = useQueryClient();
@@ -106,7 +107,7 @@ export const SyncSettings: React.FC = () => {
     setSyncConfirmOpen(false);
     setSyncing(true);
     try {
-      await syncToMutation.mutateAsync({ automatic: false, newLocation: true });
+      await syncToMutation.mutateAsync({ automatic: false, newLocation: true, trigger: 'setup' });
     } finally {
       setSyncing(false);
     }
@@ -123,7 +124,7 @@ export const SyncSettings: React.FC = () => {
   const handleSyncNow = async () => {
     setSyncing(true);
     try {
-      await syncToMutation.mutateAsync({ existingSyncTo: existingSyncTo ?? undefined, automatic: automaticSync });
+      await syncToMutation.mutateAsync({ existingSyncTo: existingSyncTo ?? undefined, automatic: automaticSync, trigger: 'manual' });
     } finally {
       setSyncing(false);
     }
@@ -202,6 +203,8 @@ export const SyncSettings: React.FC = () => {
           </Button>
         </Box>
       )}
+
+      <SyncLogDialog />
 
       <Typography variant="h6" component="h3" gutterBottom sx={{ mt: 2 }}>
         Sync From

@@ -4,6 +4,7 @@ import { db, type LocalImageAsset } from '../../db/db';
 import { hashBlob, verifyCachedAsset } from '../../db/image-cache';
 import { IMAGE_LIMITS, type ImageMimeType } from '../../shareable/image-assets';
 import { IMAGE_OPTIONS } from '../images';
+import type { ObservedImage } from './diagnostic-photos';
 
 // Bound the source allocation separately from the maximum size of the cloud copy.
 const MAX_SOURCE_BYTES = 32 * 1024 * 1024;
@@ -26,14 +27,15 @@ async function inspectPhoto(source: LocalImageAsset) {
   try {
     const { width, height } = readImageDimensions(bytes, mimeType);
     if (width > MAX_SOURCE_EDGE || height > MAX_SOURCE_EDGE || width * height > MAX_SOURCE_PIXELS) {
-      return { reason: 'The photo is too large to process safely.' } as const;
+      return { reason: 'The photo is too large to process safely.', observed: { detected: mimeType, width, height } } as const;
     }
     return {
       blob: source.mimeType === mimeType ? source.blob : source.blob.slice(0, source.blob.size, mimeType),
       mimeType,
+      observed: { detected: mimeType, width, height },
       oversized: !fitsCloud(width, height, source.byteLength),
     };
-  } catch { return { reason: 'The photo container is invalid or unsupported.' } as const; }
+  } catch { return { reason: 'The photo container is invalid or unsupported.', observed: { detected: mimeType } } as const; }
 }
 
 /** Old pending snapshots describe the bytes and label that the Worker would receive. */
@@ -67,7 +69,9 @@ async function encodeCopy(bitmap: ImageBitmap, mimeType: ImageMimeType) {
       if (actual !== format) continue;
       try {
         const { width, height } = readImageDimensions(bytes, actual);
-        if (width === canvas.width && height === canvas.height && fitsCloud(width, height, blob.size)) return blob;
+        if (width === canvas.width && height === canvas.height && fitsCloud(width, height, blob.size)) {
+          return { blob, observed: { detected: actual, width, height } };
+        }
       } catch { /* Try the next encoder if its container cannot be verified. */ }
     }
   } finally { canvas.width = canvas.height = 0; }
@@ -78,9 +82,9 @@ export const photoRejectionKey = (collectionId: string, assetId: string) => `syn
 
 export type PreparedPhoto = { assetId: string; mimeType: ImageMimeType; byteLength: number };
 
-export async function preparePhoto(source: LocalImageAsset): Promise<PreparedPhoto | { reason: string }> {
+export async function preparePhoto(source: LocalImageAsset): Promise<(PreparedPhoto | { reason: string }) & { observed?: ObservedImage }> {
   const photo = await inspectPhoto(source);
-  if (photo.reason) return { reason: photo.reason };
+  if (photo.reason) return { reason: photo.reason, observed: photo.observed };
   // The local setting is versioned with the sizing/encoding recipe and is excluded from backups.
   const copyKey = `sync-image-copy-v1:${source.assetId}`;
   const saved = photo.oversized && await db.settings.get(copyKey);
@@ -89,23 +93,23 @@ export async function preparePhoto(source: LocalImageAsset): Promise<PreparedPho
     if (copy) {
       const checked = await inspectPhoto(copy);
       if (!checked.reason && !checked.oversized) {
-        return { assetId: copy.assetId, mimeType: checked.mimeType, byteLength: copy.byteLength };
+        return { assetId: copy.assetId, mimeType: checked.mimeType, byteLength: copy.byteLength, observed: checked.observed };
       }
     }
   }
 
   let bitmap: ImageBitmap;
   try { bitmap = await createImageBitmap(photo.blob); }
-  catch { return { reason: 'The photo could not be decoded.' }; }
-  let copy: Blob | undefined;
+  catch { return { reason: 'The photo could not be decoded.', observed: photo.observed }; }
+  let copy: Awaited<ReturnType<typeof encodeCopy>>;
   try {
-    if (!photo.oversized) return { assetId: source.assetId, mimeType: photo.mimeType, byteLength: source.byteLength };
+    if (!photo.oversized) return { assetId: source.assetId, mimeType: photo.mimeType, byteLength: source.byteLength, observed: photo.observed };
     copy = await encodeCopy(bitmap, photo.mimeType);
   } catch { /* An encoder or canvas failed. */ }
   finally { bitmap.close(); }
-  if (!copy) return { reason: 'A cloud copy could not be saved within the image limits.' };
-  const assetId = await hashBlob(copy);
-  const blob = copy;
+  if (!copy) return { reason: 'A cloud copy could not be saved within the image limits.', observed: photo.observed };
+  const { blob, observed } = copy;
+  const assetId = await hashBlob(blob);
   const now = new Date().toISOString();
   const cached = await db.transaction('rw', db.imageAssets, db.settings, async () => {
     // A content address may already belong to another local photo. Keep its original row.
@@ -120,6 +124,6 @@ export async function preparePhoto(source: LocalImageAsset): Promise<PreparedPho
     await db.settings.put({ id: copyKey, value: assetId });
     return true;
   });
-  if (!cached) return { reason: 'The cached cloud copy failed its integrity check.' };
-  return { assetId, mimeType: copy.type as ImageMimeType, byteLength: copy.size };
+  if (!cached) return { reason: 'The cached cloud copy failed its integrity check.', observed: photo.observed };
+  return { assetId, mimeType: blob.type as ImageMimeType, byteLength: blob.size, observed };
 }

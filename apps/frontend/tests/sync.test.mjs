@@ -261,3 +261,38 @@ test('obsolete pending replacement reconciles an earlier successful publish with
   const publishCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/v2/snapshots/publish'));
   expect(JSON.parse(publishCall[1].body).expectedRevision).toBe(writer.revision);
 });
+
+test('a writer pass pasted into a title and arbitrary Worker errors are absent from actual Sync To diagnostics', async () => {
+  const { clearSyncLog, readSyncLog } = await import('../src/util/sync/diagnostics.ts');
+  const { syncReport } = await import('../src/util/sync/diagnostics-model.ts');
+  await clearSyncLog();
+  await seed();
+  const pass = 'ΑΒΓΔΕΖΣ';
+  storage.env.PASS = pass;
+  await db.settings.put({ id: 'youtubeApiPass', value: pass });
+  await db.meals.update(1, { name: `Soup ${pass}pie` });
+  let signedUrl, token;
+  const realFetch = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation((input, options) => {
+    const url = new URL(String(input));
+    if (url.pathname.startsWith('/objects/')) signedUrl = url.href;
+    if (url.pathname.endsWith('/images/complete')) {
+      token = JSON.parse(options.body).uploadToken;
+      return Promise.resolve(Response.json({ error: token }, { status: 400 }));
+    }
+    return realFetch(input, options);
+  });
+  await expect(syncTo({ automatic: false })).rejects.toThrow('could not verify');
+  await vi.waitFor(() => expect(Object.keys(localStorage).filter(key => key.includes(':sync-log:v1:run:'))).toHaveLength(1));
+  const [run] = readSyncLog().runs;
+  expect(run.outcome).toBe('failed');
+  const report = syncReport(run, true);
+  expect(report).toContain('Request failed with HTTP 400.');
+  const stored = Object.keys(localStorage).filter(key => key.includes(':sync-log:v1:run:')).map(key => localStorage.getItem(key)).join('');
+  for (const sensitive of [pass, signedUrl, token]) {
+    expect(sensitive).toBeTruthy();
+    expect(stored).not.toContain(sensitive);
+    expect(report).not.toContain(sensitive);
+  }
+  await clearSyncLog();
+});
