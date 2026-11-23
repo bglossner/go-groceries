@@ -85,6 +85,7 @@ const skippedReasons = [
   'The cached photo is invalid.',
   'The photo is too large to process safely.',
   'The cached photo failed its integrity check.',
+  'Only JPEG, PNG and WebP photos can sync.',
   'Only JPEG, PNG and static WebP photos can sync.',
   'The photo container is invalid or unsupported.',
   'The photo could not be decoded.',

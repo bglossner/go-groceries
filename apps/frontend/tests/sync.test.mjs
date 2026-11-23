@@ -140,7 +140,7 @@ test('unsupported local images are skipped, name the affected meal, and retain o
   await db.recipes.put({id:1,mealId:1,images:[ref],url:'',notes:''});
   const frozen = await freezeSnapshot(crypto.randomUUID(),crypto.randomUUID());
   expect(frozen.snapshot.assets).toEqual([]);
-  expect(frozen.warnings).toEqual(['Photo skipped for recipe “Soup”. Only JPEG, PNG and static WebP photos can sync.']);
+  expect(frozen.warnings).toEqual(['Photo skipped for recipe “Soup”. Only JPEG, PNG and WebP photos can sync.']);
   expect(await db.imageAssets.get(ref.assetId)).toBeDefined(); expect(fetchMock).not.toHaveBeenCalled();
 });
 
@@ -162,6 +162,18 @@ test('a new Worker container rejection names the photo and stays omitted across 
   await syncTo({ automatic: false });
   expect(published().assets).toEqual([]);
   expect(storage.events.filter(e => e.action === 'SIGNED_PUT')).toHaveLength(1);
+});
+
+test('a photo rejected by the previous format check can sync in its existing collection', async () => {
+  await syncTo({ automatic: false });
+  const { collectionId } = await db.syncs.where('type').equals('to').first();
+  const ref = await seed();
+  await db.settings.put({ id: `sync-image-rejection-v1:${collectionId}:${ref.assetId}`, value: 'true' });
+
+  await syncTo({ automatic: false });
+
+  expect(published().collectionId).toBe(collectionId);
+  expect(published().assets.map(asset => asset.assetId)).toEqual([ref.assetId]);
 });
 
 test('a missing frozen photo can recover once the live meal removes its reference', async () => {

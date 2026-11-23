@@ -187,30 +187,29 @@ test('concurrent verified promotions reconcile conditional-create conflicts',asy
  assert.equal(completed.asset.sha256,descriptor.sha256);
  assert.deepEqual(objects.get(completed.asset.location.key).bytes,different);
 });
-test('static JPEG/WebP accepted; truncated containers, animated and mismatched WebP rejected',async()=>{
- // Minimal structural fixtures; the validator intentionally does not decode pixels.
+test('completion accepts JPEG trailers and WebP animation while rejecting incomplete image headers',async()=>{
+ // These fixtures exercise headers at the HTTP endpoint. Browser preflight decodes pixels.
  const jpeg=Uint8Array.from([255,216,255,192,0,11,8,0,1,0,1,1,1,17,0,255,218,0,8,1,1,0,0,63,0,1,255,217]);
  const webp=Uint8Array.from(Buffer.concat([Buffer.from('RIFF'),Buffer.from([24,0,0,0]),Buffer.from('WEBPVP8 '),Buffer.from([11,0,0,0]),Buffer.from([0,0,0,157,1,42,1,0,1,0,0,0])]));
- for(const [bytes,mimeType] of [[jpeg,'image/jpeg'],[webp,'image/webp']]){
+ const animated=Uint8Array.from(Buffer.from('UklGRoQAAABXRUJQVlA4WAoAAAACAAAAAQAAAgAAQU5JTQYAAAAAAAAAAABBTk1GKAAAAAAAAAAAAAEAAAIAAGQAAAJWUDhMDwAAAC8BgAAABxD9j/4HIqL/AQBBTk1GKAAAAAAAAAAAAAEAAAIAAGQAAABWUDhMDwAAAC8BgAAABxDR//4HIqL/AQA=', 'base64'));
+ const jpegWithTrailer=Uint8Array.from([...jpeg,1,2,3]);
+ const jpegWithoutEndMarker=jpeg.slice(0,-2);
+ for(const [bytes,mimeType] of [[jpeg,'image/jpeg'],[jpegWithTrailer,'image/jpeg'],[jpegWithoutEndMarker,'image/jpeg'],[webp,'image/webp'],[animated,'image/webp']]){
   const prep=await prepareImage({sha256:hash(bytes),mimeType,byteLength:bytes.length});stage(prep,bytes);
   await api('v2/images/complete',writer({uploadToken:prep.uploadToken}));
  }
  const headerOnly=Uint8Array.from(Buffer.concat([Buffer.from('RIFF'),Buffer.from([22,0,0,0]),Buffer.from('WEBPVP8X'),Buffer.from([10,0,0,0]),Buffer.alloc(10)]));
- const animated=headerOnly.slice();animated[20]=2;
- const extended=Uint8Array.from(Buffer.concat([Buffer.from('RIFF'),Buffer.from([42,0,0,0]),Buffer.from('WEBPVP8X'),Buffer.from([10,0,0,0]),Buffer.from([0,0,0,0,1,0,0,0,0,0]),Buffer.from(webp.subarray(12))]));
- for(const bytes of [headerOnly,animated,extended]){
+ const animationWithoutFrames=headerOnly.slice();animationWithoutFrames[20]=2;
+ const mismatchedCanvas=Uint8Array.from(Buffer.concat([Buffer.from('RIFF'),Buffer.from([42,0,0,0]),Buffer.from('WEBPVP8X'),Buffer.from([10,0,0,0]),Buffer.from([0,0,0,0,1,0,0,0,0,0]),Buffer.from(webp.subarray(12))]));
+ for(const bytes of [headerOnly,animationWithoutFrames,mismatchedCanvas]){
   const prep=await prepareImage({sha256:hash(bytes),mimeType:'image/webp',byteLength:bytes.length});stage(prep,bytes);
   await api('v2/images/complete',writer({uploadToken:prep.uploadToken}),400);
  }
  const zeroComponents=Uint8Array.from(Buffer.from('ffd8ffc00008080001000100ffda00060000000000ffd9','hex'));
- const badPrep=await prepareImage({sha256:hash(zeroComponents),mimeType:'image/jpeg',byteLength:zeroComponents.length});stage(badPrep,zeroComponents);
- await api('v2/images/complete',writer({uploadToken:badPrep.uploadToken}),400);
- const swallowedEOI=Uint8Array.from(Buffer.from('ffd8ffc0000b080001000101011100ffda0008010100003f0000ffe00004ffd9','hex'));
- const eoiPrep=await prepareImage({sha256:hash(swallowedEOI),mimeType:'image/jpeg',byteLength:swallowedEOI.length});stage(eoiPrep,swallowedEOI);
- await api('v2/images/complete',writer({uploadToken:eoiPrep.uploadToken}),400);
- const noScan=jpeg.slice(0,15);const badJPEG=Uint8Array.from([...noScan,255,217]);
- const prep=await prepareImage({sha256:hash(badJPEG),mimeType:'image/jpeg',byteLength:badJPEG.length});stage(prep,badJPEG);
- await api('v2/images/complete',writer({uploadToken:prep.uploadToken}),400);
+ for (const bytes of [zeroComponents, jpeg.slice(0,14)]) {
+  const prep=await prepareImage({sha256:hash(bytes),mimeType:'image/jpeg',byteLength:bytes.length});stage(prep,bytes);
+  await api('v2/images/complete',writer({uploadToken:prep.uploadToken}),400);
+ }
 });
 test('upstream HEAD failures remain 502; genuine misses remain 404', async () => {
  failHead=403;

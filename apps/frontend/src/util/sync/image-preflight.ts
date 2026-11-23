@@ -23,7 +23,7 @@ async function inspectPhoto(source: LocalImageAsset) {
   catch { return { reason: 'The cached photo failed its integrity check.' } as const; }
   const bytes = new Uint8Array(await source.blob.arrayBuffer());
   const mimeType = sniffImageType(bytes);
-  if (!mimeType) return { reason: 'Only JPEG, PNG and static WebP photos can sync.' } as const;
+  if (!mimeType) return { reason: 'Only JPEG, PNG and WebP photos can sync.' } as const;
   try {
     const { width, height } = readImageDimensions(bytes, mimeType);
     if (width > MAX_SOURCE_EDGE || height > MAX_SOURCE_EDGE || width * height > MAX_SOURCE_PIXELS) {
@@ -77,8 +77,8 @@ async function encodeCopy(bitmap: ImageBitmap, mimeType: ImageMimeType) {
   } finally { canvas.width = canvas.height = 0; }
 }
 
-// A known deterministic cloud rejection applies to these bytes in this collection.
-export const photoRejectionKey = (collectionId: string, assetId: string) => `sync-image-rejection-v1:${collectionId}:${assetId}`;
+// Version the cache with the format check so earlier rejections can be retried.
+export const photoRejectionKey = (collectionId: string, assetId: string) => `sync-image-rejection-v2:${collectionId}:${assetId}`;
 
 export type PreparedPhoto = { assetId: string; mimeType: ImageMimeType; byteLength: number };
 
