@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { db } from '../src/db/db.ts';
-import { saveIngredientStores } from '../src/util/storeAssignments.ts';
+import { addIngredientsToStores, saveIngredientStores } from '../src/util/storeAssignments.ts';
 import { CustomIngredientInUse, deleteCustomIngredient } from '../src/util/customIngredients.ts';
 import { cleanDatabase, meal } from './helpers.mjs';
 
@@ -111,4 +111,63 @@ test('rolls back assignment removal if custom catalog deletion fails', async () 
   }
   expect(await assignedStoreIds()).toEqual([corner]);
   expect(await db.customIngredients.count()).toBe(1);
+});
+
+test('bulk add is idempotent and preserves existing and unticked pairs', async () => {
+  const [corner, fresh, green] = await seed();
+  const carrot = 'carrot';
+  await db.meals.add({ ...meal(), ingredients: [{ name: 'Carrot', quantity: 1 }] });
+  const originals = [
+    { ingredientName: name, storeId: corner },
+    { ingredientName: carrot, storeId: green },
+    { ingredientName: 'Red-Pepper Flakes', storeId: fresh },
+  ];
+  const ids = await db.ingredientStores.bulkAdd(originals, { allKeys: true });
+  const names = [name, carrot, name];
+  const stores = [corner, fresh, fresh];
+  const first = await addIngredientsToStores(names, stores);
+  expect(first.addedCount).toBe(3);
+  expect(first.links).toEqual(expect.arrayContaining([
+    { ...originals[0], id: ids[0] },
+    expect.objectContaining({ ingredientName: name, storeId: fresh }),
+    expect.objectContaining({ ingredientName: carrot, storeId: corner }),
+    expect.objectContaining({ ingredientName: carrot, storeId: fresh }),
+  ]));
+  const after = await db.ingredientStores.toArray();
+  expect(after).toHaveLength(6);
+  expect(await db.ingredientStores.bulkGet(ids)).toEqual(originals.map((link, index) => ({ ...link, id: ids[index] })));
+  expect((await addIngredientsToStores(names, stores)).addedCount).toBe(0);
+  expect(await db.ingredientStores.toArray()).toEqual(after);
+});
+
+test('bulk add uses one transaction and rolls back every new pair when a write fails', async () => {
+  const [corner, fresh, green] = await seed();
+  const carrot = 'carrot';
+  await db.customIngredients.add({ name: carrot });
+  const original = { ingredientName: name, storeId: corner };
+  const id = await db.ingredientStores.add(original);
+  const transactions = new Set();
+  let accepted = 0;
+  function collideWithExistingKey(_, link, transaction) {
+    transactions.add(transaction);
+    if (link.ingredientName === carrot && link.storeId === green) return id;
+    this.onsuccess = () => { accepted++; };
+  }
+  db.ingredientStores.hook('creating', collideWithExistingKey);
+  try {
+    await expect(addIngredientsToStores([name, carrot], [fresh, green])).rejects.toThrow('ConstraintError');
+  } finally {
+    db.ingredientStores.hook('creating').unsubscribe(collideWithExistingKey);
+  }
+  expect(transactions.size).toBe(1);
+  expect(accepted).toBe(3);
+  expect(await db.ingredientStores.toArray()).toEqual([{ ...original, id }]);
+});
+
+test('bulk add validates live stores and exact catalog assignment keys before writing', async () => {
+  const [corner, fresh] = await seed();
+  await db.stores.delete(fresh);
+  await expect(addIngredientsToStores([name], [corner, fresh])).rejects.toThrow('A selected store no longer exists');
+  await expect(addIngredientsToStores([name, 'Red-Pepper Flakes'], [corner])).rejects.toThrow('A selected ingredient no longer exists');
+  expect(await db.ingredientStores.count()).toBe(0);
 });

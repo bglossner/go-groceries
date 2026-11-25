@@ -5,20 +5,32 @@ import {
   InputAdornment, List, ListItem, ListItemButton, Paper, TextField,
   ToggleButton, ToggleButtonGroup, Typography, useMediaQuery, useTheme,
 } from '@mui/material';
+import CheckBox from '@mui/icons-material/CheckBox';
+import CheckBoxOutlineBlank from '@mui/icons-material/CheckBoxOutlineBlank';
 import ChevronRight from '@mui/icons-material/ChevronRight';
+import Checklist from '@mui/icons-material/Checklist';
 import Search from '@mui/icons-material/Search';
 import Settings from '@mui/icons-material/Settings';
 import IngredientStorePicker from '../components/IngredientStorePicker';
 import StoreManagementDialog from '../components/StoreManagementDialog';
 import { db, type CustomIngredient, type IngredientStore } from '../db/db';
+import { useIngredientHold } from '../hooks/useIngredientHold';
 import { CustomIngredientInUse, deleteCustomIngredient } from '../util/customIngredients';
-import { saveIngredientStores, StoreAssignmentsChangedError } from '../util/storeAssignments';
+import { addIngredientsToStores, saveIngredientStores, StoreAssignmentsChangedError } from '../util/storeAssignments';
 import { capitalize } from '../util/string';
 
 const focusOutline = { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: '-2px' };
 const emptyStoreIds: ReadonlySet<number> = new Set();
 type Filter = 'all' | 'unassigned';
 type Selection = { name: string; changes: ReadonlyMap<number, boolean> };
+type BulkAssignment = { names: ReadonlySet<string>; storeIds: ReadonlySet<number> };
+
+function rowIsVisible(row: HTMLButtonElement, list: HTMLDivElement) {
+  if (!row.isConnected) return false;
+  const { top, bottom } = row.getBoundingClientRect();
+  const bounds = list.getBoundingClientRect();
+  return bottom > Math.max(0, bounds.top) && top < Math.min(window.innerHeight, bounds.bottom);
+}
 
 export default function ManageStoresPage() {
   const queryClient = useQueryClient();
@@ -33,10 +45,21 @@ export default function ManageStoresPage() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [selection, setSelection] = useState<Selection>();
+  const [bulkNames, setBulkNames] = useState<ReadonlySet<string>>();
+  const [bulkDraft, setBulkDraft] = useState<ReadonlySet<number>>();
+  const [bulkResult, setBulkResult] = useState<string>();
+  const isSelecting = bulkNames !== undefined;
+  const bulkPickerOpen = bulkDraft !== undefined;
+  const { startHold, cancelHold } = useIngredientHold();
   const [managementOpen, setManagementOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ phone: boolean }>();
   const [deletedName, setDeletedName] = useState<string>();
   const searchRef = useRef<HTMLInputElement>(null);
+  const selectRef = useRef<HTMLButtonElement>(null);
+  const addToStoresRef = useRef<HTMLButtonElement>(null);
+  const selectionTrigger = useRef<HTMLButtonElement | 'select'>();
+  const wasBulkPickerOpen = useRef(false);
+  const bulkSaveInFlight = useRef(false);
   const deleteTriggerRef = useRef<HTMLButtonElement>(null);
   const editorHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const deleteCancelRef = useRef<HTMLButtonElement>(null);
@@ -83,6 +106,18 @@ export default function ManageStoresPage() {
   const ingredients = useMemo(() => [...new Set([...catalog, ...storesByIngredient.keys()])]
     .filter(name => name.toLowerCase().includes(needle) && (filter === 'all' || !storesByIngredient.has(name)))
     .sort((a, b) => a.localeCompare(b)), [catalog, filter, needle, storesByIngredient]);
+  const eligibleResults = ingredients.filter(name => catalog.has(name));
+  const hiddenPicks = bulkNames ? bulkNames.size - eligibleResults.filter(name => bulkNames.has(name)).length : 0;
+  const allResultsSelected = eligibleResults.every(name => bulkNames?.has(name));
+  const bulkLinkedCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    if (bulkPickerOpen) {
+      bulkNames?.forEach(name => {
+        storesByIngredient.get(name)?.forEach(id => counts.set(id, (counts.get(id) ?? 0) + 1));
+      });
+    }
+    return counts;
+  }, [bulkNames, bulkPickerOpen, storesByIngredient]);
   const selectedStoreIds = selection ? (storesByIngredient.get(selection.name) ?? emptyStoreIds) : emptyStoreIds;
   const selectedInCatalog = selection !== undefined && catalog.has(selection.name);
   const editableStores = selectedInCatalog ? stores : stores.filter(store => selectedStoreIds.has(store.id));
@@ -102,15 +137,34 @@ export default function ManageStoresPage() {
       }
       setSelection(undefined);
     },
-    onError: error => {
-      if (error instanceof StoreAssignmentsChangedError) {
-        void queryClient.invalidateQueries({ queryKey: ['meals'] });
-        void queryClient.invalidateQueries({ queryKey: ['customIngredients'] });
-      }
-      void queryClient.invalidateQueries({ queryKey: ['stores'] });
-      void queryClient.invalidateQueries({ queryKey: ['ingredientStores'] });
-    },
+    onError: refreshAssignmentsOnError,
   });
+
+  const saveBulkStores = useMutation({
+    networkMode: 'always',
+    mutationFn: ({ names, storeIds }: BulkAssignment) => addIngredientsToStores(names, storeIds),
+    onSuccess: ({ links, addedCount }, { names, storeIds }) => {
+      queryClient.setQueryData<IngredientStore[]>(['ingredientStores'], (current = []) => [
+        ...current.filter(link => !names.has(link.ingredientName) || !storeIds.has(link.storeId)),
+        ...links,
+      ]);
+      void queryClient.invalidateQueries({ queryKey: ['ingredientStores'] });
+      setBulkDraft(undefined);
+      setBulkNames(undefined);
+      setBulkResult(`Added ${addedCount} store ${addedCount === 1 ? 'link' : 'links'} for ${names.size} selected ${names.size === 1 ? 'ingredient' : 'ingredients'}.`);
+    },
+    onError: refreshAssignmentsOnError,
+    onSettled: () => { bulkSaveInFlight.current = false; },
+  });
+
+  function refreshAssignmentsOnError(error: Error) {
+    if (error instanceof StoreAssignmentsChangedError) {
+      void queryClient.invalidateQueries({ queryKey: ['meals'] });
+      void queryClient.invalidateQueries({ queryKey: ['customIngredients'] });
+    }
+    void queryClient.invalidateQueries({ queryKey: ['stores'] });
+    void queryClient.invalidateQueries({ queryKey: ['ingredientStores'] });
+  }
 
   const deleteIngredient = useMutation({
     networkMode: 'always',
@@ -139,8 +193,32 @@ export default function ManageStoresPage() {
   const deleteBlocked = inUse || (deleteIngredient.variables === selectedName && deleteIngredient.error instanceof CustomIngredientInUse);
 
   useLayoutEffect(() => {
+    cancelHold();
     if (listRef.current) listRef.current.scrollTop = 0;
-  }, [needle, filter]);
+  }, [cancelHold, needle, filter]);
+
+  useLayoutEffect(() => {
+    const trigger = selectionTrigger.current;
+    if (!trigger) return;
+    const list = listRef.current;
+    if (isSelecting) {
+      const target = trigger === 'select' && list
+        ? Array.from(list.querySelectorAll<HTMLButtonElement>('[data-bulk-eligible]')).find(row => rowIsVisible(row, list))
+        : trigger === 'select' ? undefined : trigger;
+      (target ?? searchRef.current)?.focus({ preventScroll: true });
+    } else {
+      const target = trigger === 'select' ? selectRef.current : list && rowIsVisible(trigger, list) ? trigger : null;
+      (target && !target.disabled ? target : searchRef.current)?.focus({ preventScroll: true });
+      selectionTrigger.current = undefined;
+    }
+  }, [isSelecting]);
+
+  useLayoutEffect(() => {
+    if (!bulkPickerOpen && wasBulkPickerOpen.current && isSelecting) {
+      (addToStoresRef.current ?? searchRef.current)?.focus({ preventScroll: true });
+    }
+    wasBulkPickerOpen.current = bulkPickerOpen;
+  }, [bulkPickerOpen, isSelecting]);
 
   useLayoutEffect(() => {
     if (!selection && wasEditing.current) {
@@ -155,9 +233,20 @@ export default function ManageStoresPage() {
     const row = focusedIngredient.current;
     if (row && !row.isConnected) {
       focusedIngredient.current = null;
-      if (document.activeElement === document.body && !selection) searchRef.current?.focus();
+      if (document.activeElement === document.body && !selection && !bulkPickerOpen) searchRef.current?.focus();
     }
   });
+
+  function enterSelection(trigger: HTMLButtonElement | 'select', name?: string) {
+    cancelHold();
+    selectionTrigger.current = trigger;
+    setBulkResult(undefined);
+    setBulkNames(new Set(name === undefined ? [] : [name]));
+  }
+
+  function closeBulkPicker() {
+    if (!bulkSaveInFlight.current) setBulkDraft(undefined);
+  }
 
   function closePicker() {
     if (!saveStores.isPending && !confirmDelete) setSelection(undefined);
@@ -170,14 +259,24 @@ export default function ManageStoresPage() {
   }
 
   return (
-    <Box component="main" sx={{ pb: 4, textAlign: 'left' }}>
+    <Box
+      component="main"
+      sx={{ pb: 4, textAlign: 'left' }}
+      onKeyDown={event => {
+        if (event.key !== 'Escape' || !isSelecting || managementOpen || selection) return;
+        event.preventDefault();
+        if (bulkPickerOpen) closeBulkPicker();
+        else setBulkNames(undefined);
+      }}
+    >
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2 }}>
         <Typography component="h1" variant="h5">Stores</Typography>
         <Button
           variant="outlined"
           startIcon={<Settings />}
-          disabled={storesQuery.isPending || storesQuery.isLoadingError || assignmentsQuery.isPending || assignmentsQuery.isLoadingError || saveStores.isPending}
+          disabled={storesQuery.isPending || storesQuery.isLoadingError || assignmentsQuery.isPending || assignmentsQuery.isLoadingError || saveStores.isPending || bulkPickerOpen}
           onClick={event => {
+            cancelHold();
             event.currentTarget.focus();
             setManagementOpen(true);
           }}
@@ -192,19 +291,44 @@ export default function ManageStoresPage() {
           Deleted {capitalize(deletedName)}.
         </Alert>
       )}
+      {bulkResult && (
+        <Alert severity="success" role="status" sx={{ mb: 2 }} onClose={() => setBulkResult(undefined)}>
+          {bulkResult}
+        </Alert>
+      )}
+      <Box role="status" aria-live="polite" aria-atomic="true" sx={{
+        position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap',
+      }}>
+        {bulkNames ? `${bulkNames.size} selected${hiddenPicks ? `, ${hiddenPicks} outside these results` : ''}` : ''}
+      </Box>
       {loadError && <Alert severity="error">Could not load stores or ingredients. Try reloading the page.</Alert>}
       {!loadError && loading && <Typography role="status">Loading stores and ingredients…</Typography>}
       {!loadError && !loading && (
         <Box sx={{ display: 'grid', gridTemplateColumns: { md: 'minmax(0, 1.25fr) minmax(0, 1fr)' }, gap: 2, alignItems: 'start' }}>
           <Paper component="section" aria-labelledby={ingredientHeadingId} variant="outlined" sx={{ minWidth: 0 }}>
             <Box sx={{ p: 2 }}>
-              <Typography id={ingredientHeadingId} component="h2" variant="h6" sx={{ mb: 1.5 }}>Ingredients</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 44, mt: -0.75, mb: 0.75 }}>
+                <Typography id={ingredientHeadingId} component="h2" variant="h6">Ingredients</Typography>
+                {!isSelecting && (
+                  <Button
+                    ref={selectRef}
+                    size="small"
+                    startIcon={<Checklist />}
+                    disabled={Boolean(selection) || !eligibleResults.length}
+                    onClick={() => enterSelection('select')}
+                    sx={{ minHeight: 44, '&.Mui-focusVisible': focusOutline }}
+                  >
+                    Select
+                  </Button>
+                )}
+              </Box>
               <TextField
                 fullWidth
                 type="search"
                 size="small"
                 label="Search ingredients"
                 inputRef={searchRef}
+                disabled={bulkPickerOpen}
                 value={search}
                 onChange={event => setSearch(event.target.value)}
                 slotProps={{ input: { startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> } }}
@@ -213,6 +337,7 @@ export default function ManageStoresPage() {
                 aria-label="Filter ingredients"
                 value={filter}
                 exclusive
+                disabled={bulkPickerOpen}
                 fullWidth
                 size="small"
                 onChange={(_, value: Filter | null) => { if (value) setFilter(value); }}
@@ -223,11 +348,52 @@ export default function ManageStoresPage() {
               </ToggleButtonGroup>
             </Box>
             <Divider />
+            {bulkNames && (
+              <>
+                <Box sx={{ bgcolor: 'action.selected', px: 1.5, pt: 0.75, '& .MuiButton-root': { minHeight: 44 }, '& .Mui-focusVisible': focusOutline }}>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', columnGap: 1 }}>
+                    <Typography variant="subtitle2" sx={{ pl: 0.5 }}>{bulkNames.size} selected</Typography>
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      <Button size="small" disabled={bulkPickerOpen || Boolean(selection)} onClick={() => setBulkNames(undefined)}>Cancel</Button>
+                      <Button
+                        ref={addToStoresRef}
+                        size="small"
+                        variant="contained"
+                        disableElevation
+                        disabled={!bulkNames.size || bulkPickerOpen || Boolean(selection)}
+                        aria-haspopup={phone ? 'dialog' : undefined}
+                        onClick={() => {
+                          saveBulkStores.reset();
+                          setBulkDraft(new Set());
+                        }}
+                      >
+                        Add to stores
+                      </Button>
+                    </Box>
+                  </Box>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 0.5 }}>
+                    <Button
+                      size="small"
+                      disabled={bulkPickerOpen || Boolean(selection)}
+                      aria-disabled={allResultsSelected || undefined}
+                      sx={{ '&[aria-disabled="true"]': { color: 'action.disabled', cursor: 'default' } }}
+                      onClick={() => {
+                        if (!allResultsSelected) setBulkNames(new Set([...bulkNames, ...eligibleResults]));
+                      }}
+                    >
+                      Select all results
+                    </Button>
+                    {hiddenPicks > 0 && <Typography variant="caption" color="text.secondary">{hiddenPicks} outside these results</Typography>}
+                  </Box>
+                </Box>
+                <Divider />
+              </>
+            )}
             <Box
               ref={listRef}
               role="region"
               aria-label="Ingredient directory"
-              tabIndex={ingredients.length ? 0 : undefined}
+              tabIndex={ingredients.length && !bulkPickerOpen ? 0 : undefined}
               sx={{
                 '--ingredient-row-height': '61px', maxHeight: 'calc(5 * var(--ingredient-row-height))', overflowY: 'auto',
                 overscrollBehaviorY: 'contain', '&:focus-visible': focusOutline,
@@ -236,41 +402,72 @@ export default function ManageStoresPage() {
               {ingredients.length ? (
                 <List disablePadding>
                   {ingredients.map((name, index) => {
+                    const eligible = catalog.has(name);
+                    const checking = isSelecting && eligible;
+                    const checked = checking && Boolean(bulkNames?.has(name));
                     const selected = selection?.name === name;
+                    const legacy = !eligible && catalog.has(name.toLowerCase());
+                    const summaryId = `${ingredientHeadingId}-ingredient-${index}`;
                     const storeNames = stores.filter(store => storesByIngredient.get(name)?.has(store.id)).map(store => store.name);
                     return (
                       <ListItem key={name} disablePadding divider={index < ingredients.length - 1}>
                         <ListItemButton
                           component="button"
                           type="button"
-                          selected={selected}
+                          data-bulk-eligible={eligible || undefined}
+                          role={checking ? 'checkbox' : undefined}
+                          selected={checked || selected}
+                          aria-checked={checking ? checked : undefined}
+                          aria-label={checking ? capitalize(name) : undefined}
+                          aria-describedby={checking ? summaryId : undefined}
                           aria-current={selected || undefined}
-                          aria-haspopup={phone ? 'dialog' : undefined}
+                          aria-haspopup={phone && !checking ? 'dialog' : undefined}
+                          disabled={bulkPickerOpen || (checking && Boolean(selection))}
                           aria-disabled={saveStores.isPending || undefined}
                           onFocus={event => { focusedIngredient.current = event.currentTarget; }}
                           onBlur={event => {
                             if (event.relatedTarget && event.relatedTarget !== document.body) focusedIngredient.current = null;
                           }}
+                          onPointerDown={event => {
+                            if (eligible && !isSelecting && !selection) startHold(event, row => enterSelection(row, name));
+                          }}
+                          onContextMenu={event => event.preventDefault()}
                           onClick={event => {
                             if (selected || saveStores.isPending) return;
+                            cancelHold();
+                            if (checking) {
+                              setBulkNames(current => {
+                                const next = new Set(current);
+                                if (next.has(name)) next.delete(name);
+                                else next.add(name);
+                                return next;
+                              });
+                              return;
+                            }
                             returnFocus.current = event.currentTarget;
                             setDeletedName(undefined);
+                            setBulkResult(undefined);
                             saveStores.reset();
                             deleteIngredient.reset();
                             setSelection({ name, changes: new Map() });
                           }}
-                          sx={{ minHeight: 'calc(var(--ingredient-row-height) - 1px)', justifyContent: 'space-between', gap: 1, '&.Mui-focusVisible': focusOutline }}
+                          sx={{
+                            minHeight: 'calc(var(--ingredient-row-height) - 1px)', justifyContent: 'space-between', gap: 1,
+                            userSelect: 'none', WebkitTouchCallout: 'none', touchAction: 'pan-y pinch-zoom',
+                            '&.Mui-focusVisible': focusOutline,
+                          }}
                         >
+                          {checking && (checked ? <CheckBox color="primary" /> : <CheckBoxOutlineBlank color="action" />)}
                           <Box component="span" sx={{ display: 'block', flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
                             <Typography component="span" display="block">{capitalize(name)}</Typography>
-                            <Typography component="span" display="block" variant="body2" color="text.secondary" noWrap>
-                              {storeNames.length ? storeNames.join(', ') : 'No stores'}
-                              {!catalog.has(name) && (catalog.has(name.toLowerCase())
-                                ? ' · Saved assignment under a legacy spelling'
-                                : ' · Saved assignment')}
+                            <Typography id={summaryId} component="span" display="block" variant="body2" color="text.secondary" noWrap>
+                              {isSelecting && !eligible
+                                ? `${legacy ? 'Legacy spelling' : 'Saved assignment'} · Single picker only`
+                                : `${storeNames.length ? storeNames.join(', ') : 'No stores'}${eligible ? '' : legacy
+                                  ? ' · Saved assignment under a legacy spelling' : ' · Saved assignment'}`}
                             </Typography>
                           </Box>
-                          <ChevronRight color="action" fontSize="small" />
+                          {!checking && <ChevronRight color="action" fontSize="small" />}
                         </ListItemButton>
                       </ListItem>
                     );
@@ -283,7 +480,34 @@ export default function ManageStoresPage() {
               )}
             </Box>
           </Paper>
-          {selection ? (
+          {bulkDraft && bulkNames ? (
+            <IngredientStorePicker
+              key="bulk-picker"
+              mode="bulk"
+              headingRef={editorHeadingRef}
+              phone={phone}
+              ingredientCount={bulkNames.size}
+              stores={stores}
+              linkedCounts={bulkLinkedCounts}
+              draft={bulkDraft}
+              saving={saveBulkStores.isPending}
+              saveError={saveBulkStores.error instanceof StoreAssignmentsChangedError
+                ? saveBulkStores.error.message
+                : saveBulkStores.isError ? 'Could not add ingredients to stores. Try again.' : undefined}
+              onToggle={(storeId, checked) => {
+                const next = new Set(bulkDraft);
+                if (checked) next.add(storeId);
+                else next.delete(storeId);
+                setBulkDraft(next);
+              }}
+              onSave={() => {
+                if (bulkSaveInFlight.current || !bulkDraft.size) return;
+                bulkSaveInFlight.current = true;
+                saveBulkStores.mutate({ names: bulkNames, storeIds: bulkDraft });
+              }}
+              onClose={closeBulkPicker}
+            />
+          ) : selection ? (
             <IngredientStorePicker
               key={selection.name}
               headingRef={editorHeadingRef}
@@ -330,7 +554,7 @@ export default function ManageStoresPage() {
                 )
               )}
             />
-          ) : !phone && (
+          ) : !phone && !isSelecting && (
             <Paper variant="outlined" sx={{ p: 2 }}>
               <Typography color="text.secondary">Select an ingredient to manage its stores.</Typography>
             </Paper>

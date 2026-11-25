@@ -5,6 +5,17 @@ const search = page => page.getByRole('searchbox', { name: 'Search ingredients' 
 const ingredient = (page, name) => page.getByRole('button', { name });
 const save = page => page.getByRole('button', { name: 'Save stores' });
 const store = (page, name) => page.getByRole('checkbox', { name, exact: true });
+const directory = page => page.getByRole('region', { name: 'Ingredient directory' });
+const selectButton = page => page.getByRole('button', { name: 'Select', exact: true });
+const addToStores = page => page.getByRole('button', { name: 'Add to stores', exact: true });
+const selectAll = page => page.getByRole('button', { name: 'Select all results', exact: true });
+const picked = (page, name) => directory(page).getByRole('checkbox', { name, exact: true });
+const announced = (page, text) => expect(page.getByRole('status').filter({ hasText: text })).toHaveText(text);
+
+async function touchPoint(locator) {
+  const { x, y, width, height } = await locator.boundingBox();
+  return { x: Math.round(x + width / 2), y: Math.round(y + height / 2) };
+}
 
 async function readStores(page) {
   return page.evaluate(async () => {
@@ -128,6 +139,84 @@ test.describe('Ingredient picker on a touch phone', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await readAssignments(page)).toEqual(before);
   });
+
+  test('touch hold enters multi-select and its release keeps the ingredient checked', async ({ page, context }) => {
+    const session = await context.newCDPSession(page);
+    try {
+      await session.send('Input.dispatchTouchEvent', {
+        type: 'touchStart', touchPoints: [await touchPoint(ingredient(page, /^Carrots/))],
+      });
+      await expect(picked(page, 'Carrots')).toBeChecked();
+      await announced(page, '1 selected');
+      await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await expect(picked(page, 'Carrots')).toBeChecked();
+      await expect(picked(page, 'Carrots')).toBeFocused();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    } finally {
+      await session.detach();
+    }
+
+    await search(page).fill('ingredient 0');
+    await announced(page, '1 selected, 1 outside these results');
+    await picked(page, 'Ingredient 0').tap();
+    await announced(page, '2 selected, 1 outside these results');
+    await page.getByRole('button', { name: 'Unassigned' }).tap();
+    await search(page).clear();
+    await announced(page, '2 selected, 1 outside these results');
+    await picked(page, 'Ingredient 1').tap();
+    await announced(page, '3 selected, 1 outside these results');
+
+    await addToStores(page).tap();
+    const sheet = page.getByRole('dialog', { name: 'Add to stores' });
+    await expect(sheet.getByRole('heading')).toBeFocused();
+    await expect(store(sheet, 'Fresh Mart')).toHaveAccessibleDescription('1 of 3 already linked');
+    await store(sheet, 'Corner Market').tap();
+    await sheet.getByRole('button', { name: 'Cancel' }).tap();
+    await expect(addToStores(page)).toBeFocused();
+    await announced(page, '3 selected, 1 outside these results');
+    await addToStores(page).tap();
+    await expect(store(sheet, 'Corner Market')).not.toBeChecked();
+    await store(sheet, 'Corner Market').tap();
+    await store(sheet, 'Green Grocer').tap();
+    await expect(sheet.getByRole('status')).toHaveText('6 links will be added.');
+    await addToStores(sheet).tap();
+    await announced(page, 'Added 6 store links for 3 selected ingredients.');
+    await expect(sheet).toHaveCount(0);
+    await expect(selectButton(page)).toBeVisible();
+    await expect(search(page)).toBeFocused();
+    expect(await readAssignments(page)).toEqual([
+      ['White Miso', 'carrots', 'ingredient 0', 'ingredient 1'],
+      ['carrots'],
+      ['carrots', 'ingredient 0', 'ingredient 1'],
+    ]);
+  });
+
+  test('touch movement and a second finger cancel a pending hold', async ({ page, context }) => {
+    const session = await context.newCDPSession(page);
+    const start = await touchPoint(ingredient(page, /^Ingredient 11/));
+    const touch = (type, touchPoints) => session.send('Input.dispatchTouchEvent', { type, touchPoints });
+    try {
+      await touch('touchStart', [start]);
+      await touch('touchMove', [{ ...start, y: start.y - 55 }]);
+      await expect.poll(() => directory(page).evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+      await page.waitForTimeout(500);
+      await expect(selectButton(page)).toBeVisible();
+      await touch('touchEnd', []);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+
+      const visible = await directory(page).boundingBox();
+      const first = { x: Math.round(visible.x + 80), y: Math.round(visible.y + 35), id: 1 };
+      await touch('touchStart', [first]);
+      await touch('touchStart', [first, { ...first, x: first.x + 100, id: 2 }]);
+      await page.waitForTimeout(500);
+      await expect(selectButton(page)).toBeVisible();
+      await touch('touchCancel', []);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    } finally {
+      await session.detach();
+    }
+  });
+
 });
 
 test('desktop saves via keyboard and restores focus when the filter removes the row', async ({ page }) => {
@@ -344,4 +433,100 @@ test('an ingredient that becomes used during confirmation is protected and no lo
   await expect(editor.getByRole('button', { name: 'Delete ingredient' })).toHaveCount(0);
   await expect(editor.getByText('Used in a saved list or meal.')).toBeVisible();
   expect(await readAssignments(page)).toEqual([['White Miso'], ['carrots'], []]);
+});
+
+
+test('keyboard enters selection, selects offscreen matches, and excludes saved-only and legacy rows', async ({ page }) => {
+  await page.evaluate(async () => {
+    const { db } = await import('/src/db/db.ts');
+    const { id: storeId } = await db.stores.get({ name: 'Corner Market' });
+    await db.ingredientStores.add({ ingredientName: 'Carrots', storeId });
+  });
+  await page.reload();
+  await search(page).fill('carrots');
+  await selectButton(page).press('Enter');
+  await expect(picked(page, 'Carrots')).toBeFocused();
+  await announced(page, '0 selected');
+  await expect(addToStores(page)).toBeDisabled();
+  await page.keyboard.press('Space');
+  await expect(picked(page, 'Carrots')).toBeChecked();
+  const legacy = directory(page).getByRole('button', { name: /Legacy spelling.*Single picker only/ });
+  await legacy.press('Enter');
+  const editor = page.getByRole('region', { name: 'Carrots', exact: true });
+  await expect(store(editor, 'Corner Market')).toBeChecked();
+  await editor.getByRole('button', { name: 'Cancel' }).press('Enter');
+  await expect(legacy).toBeFocused();
+  await expect(picked(page, 'Carrots')).toBeChecked();
+
+  await search(page).clear();
+  await expect(directory(page).getByRole('button', { name: /White Miso.*Single picker only/ })).toHaveCount(1);
+  await selectAll(page).press('Enter');
+  await announced(page, '27 selected');
+  await expect(picked(page, 'Ingredient 23')).toBeChecked();
+  expect(await directory(page).evaluate(node => node.scrollHeight)).toBeGreaterThan(305);
+  await picked(page, 'Ingredient 23').press('Space');
+  await announced(page, '26 selected');
+  expect(await directory(page).evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+  await search(page).fill('ingredient');
+  expect(await directory(page).evaluate(node => node.scrollTop)).toBe(0);
+  await announced(page, '26 selected, 3 outside these results');
+  await page.keyboard.press('Escape');
+  await expect(selectButton(page)).toBeFocused();
+});
+
+test('desktop mouse holds, opens the side picker, and recovers from a rejected batch', async ({ page }) => {
+  const row = ingredient(page, /^Carrots/);
+  await row.hover();
+  await page.mouse.down();
+  await expect(picked(page, 'Carrots')).toBeChecked();
+  await page.mouse.up();
+  await expect(picked(page, 'Carrots')).toBeChecked();
+  await expect(page.getByRole('region', { name: 'Carrots', exact: true })).toHaveCount(0);
+  await addToStores(page).click();
+  const picker = page.getByRole('region', { name: 'Add to stores', exact: true });
+  await expect(picker.getByRole('heading')).toBeFocused();
+  await expect(store(picker, 'Fresh Mart')).toBeDisabled();
+  await expect(store(picker, 'Fresh Mart')).not.toBeChecked();
+  await expect(store(picker, 'Fresh Mart')).toHaveAccessibleDescription('All 1 already linked');
+  await expect(addToStores(picker)).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(addToStores(page)).toBeFocused();
+  await addToStores(page).click();
+  await store(picker, 'Corner Market').check();
+  await store(picker, 'Green Grocer').check();
+  await page.evaluate(async () => {
+    const { db } = await import('/src/db/db.ts');
+    const { id } = await db.stores.get({ name: 'Green Grocer' });
+    await db.stores.delete(id);
+  });
+  await addToStores(picker).click();
+  await expect(picker.getByRole('alert')).toContainText('A selected store no longer exists');
+  await expect(picked(page, 'Carrots')).toBeChecked();
+  expect(await readAssignments(page)).toEqual([['White Miso'], ['carrots']]);
+  await picker.getByRole('button', { name: 'Cancel' }).click();
+  await expect(addToStores(page)).toBeFocused();
+  await addToStores(page).click();
+  await expect(store(picker, 'Green Grocer')).toHaveCount(0);
+  await store(picker, 'Corner Market').check();
+  await addToStores(picker).click();
+  await announced(page, 'Added 1 store link for 1 selected ingredient.');
+  await expect(row).toBeFocused();
+  expect(await readAssignments(page)).toEqual([['White Miso', 'carrots'], ['carrots']]);
+});
+
+
+test('scrolling the viewport cancels a stationary desktop hold', async ({ page }) => {
+  await page.setViewportSize({ width: 1120, height: 450 });
+  const row = ingredient(page, /^Carrots/);
+  await row.hover();
+  await page.mouse.down();
+  try {
+    const previousY = await page.evaluate(() => window.scrollY);
+    await page.evaluate(() => window.scrollBy(0, 90));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(previousY);
+    await page.waitForTimeout(500);
+    await expect(selectButton(page)).toBeVisible();
+  } finally {
+    await page.mouse.up();
+  }
 });
