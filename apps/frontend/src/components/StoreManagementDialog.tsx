@@ -21,13 +21,15 @@ interface Props {
   open: boolean;
   onClose: () => void;
   stores: SavedStore[];
-  assignmentsByStore: ReadonlyMap<number, ReadonlySet<string>>;
+  assignmentCounts: ReadonlyMap<number, number>;
 }
 
-export default function StoreManagementDialog({ open, onClose, stores, assignmentsByStore }: Props) {
+export default function StoreManagementDialog({ open, onClose, stores, assignmentCounts }: Props) {
   const titleId = useId();
   const deleteDescriptionId = useId();
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const deleteButtons = useRef(new Map<number, HTMLButtonElement>());
+  const returnFocusId = useRef<number>();
   const [name, setName] = useState('');
   const [deleteTargetId, setDeleteTargetId] = useState<number>();
   const deleteTarget = stores.find(store => store.id === deleteTargetId);
@@ -92,16 +94,20 @@ export default function StoreManagementDialog({ open, onClose, stores, assignmen
     },
   });
   const usedColors = new Set(stores.map(store => store.color?.toUpperCase()));
-  const deleteCount = deleteTarget ? (assignmentsByStore.get(deleteTarget.id)?.size ?? 0) : 0;
+  const deleteCount = deleteTarget ? (assignmentCounts.get(deleteTarget.id) ?? 0) : 0;
 
   useLayoutEffect(() => {
-    if (open) titleRef.current?.focus();
+    if (!open) return;
+    const trigger = returnFocusId.current === undefined ? undefined : deleteButtons.current.get(returnFocusId.current);
+    (trigger ?? titleRef.current)?.focus();
+    returnFocusId.current = undefined;
   }, [open, deleteTarget?.id]);
 
   function backOrClose() {
     if (editStore.isPending) return;
     editStore.reset();
     if (deleteTarget) {
+      returnFocusId.current = deleteTarget.id;
       setDeleteTargetId(undefined);
       return;
     }
@@ -195,6 +201,10 @@ export default function StoreManagementDialog({ open, onClose, stores, assignmen
                     </Select>
                     <IconButton
                       aria-label={`Delete ${store.name}`}
+                      ref={node => {
+                        if (node) deleteButtons.current.set(store.id, node);
+                        else deleteButtons.current.delete(store.id);
+                      }}
                       disabled={editStore.isPending}
                       onClick={() => {
                         editStore.reset();

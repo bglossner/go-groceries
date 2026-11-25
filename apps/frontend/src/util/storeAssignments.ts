@@ -1,31 +1,31 @@
-import { db, type IngredientStore } from '../db/db';
+import { db } from '../db/db';
 
-type Assignment = Omit<IngredientStore, 'id'>;
+export class StoreAssignmentsChangedError extends Error {}
 
-export type AssignmentChange = Assignment & { id: number; assigned: boolean };
+export function saveIngredientStores(ingredientName: string, changes: ReadonlyMap<number, boolean>) {
+  return db.transaction('rw', [db.stores, db.ingredientStores, db.meals, db.customIngredients], async () => {
+    const storeIds = [...changes.keys()];
+    const pairs = storeIds.map(storeId => [ingredientName, storeId]);
+    const matchingLinks = () => db.ingredientStores.where('[ingredientName+storeId]').anyOf(pairs);
+    const assigned = new Set((await matchingLinks().toArray()).map(link => link.storeId));
+    const checkedIds = storeIds.filter(id => changes.get(id));
+    if ((await db.stores.bulkGet(checkedIds)).some(store => !store)) {
+      throw new StoreAssignmentsChangedError('A selected store no longer exists. Cancel and reopen the picker to review the available stores.');
+    }
+    const additions = checkedIds.filter(id => !assigned.has(id));
 
-export function setStoreAssignment(
-  assignment: Assignment,
-  assigned: boolean,
-  undo?: AssignmentChange,
-) {
-  return db.transaction('rw', db.stores, db.ingredientStores, async () => {
-    const { ingredientName, storeId } = assignment;
-    if (!(await db.stores.get(storeId))) {
-      if (undo) return;
-      throw new Error('Store no longer exists');
+    if (additions.length) {
+      const custom = await db.customIngredients.filter(row => row.name.toLowerCase() === ingredientName).first();
+      const meal = custom ? undefined : await db.meals.filter(row =>
+        row.ingredients.some(ingredient => ingredient.name.toLowerCase() === ingredientName),
+      ).first();
+      if (!custom && !meal) {
+        throw new StoreAssignmentsChangedError('Ingredient no longer exists in the catalog. Cancel and reopen the picker to review its saved stores.');
+      }
+      await db.ingredientStores.bulkAdd(additions.map(storeId => ({ ingredientName, storeId })));
     }
 
-    const existing = await db.ingredientStores.get({ ingredientName, storeId });
-    if (assigned) {
-      if (existing) return;
-      const id = await db.ingredientStores.add({ ingredientName, storeId });
-      return { ingredientName, storeId, id, assigned };
-    }
-
-    // Undo an addition only while the link created by that edit is still present.
-    if (existing?.id === undefined || (undo && existing.id !== undo.id)) return;
-    await db.ingredientStores.delete(existing.id);
-    return { ingredientName, storeId, id: existing.id, assigned };
+    await matchingLinks().and(link => changes.get(link.storeId) === false).delete();
+    return matchingLinks().toArray();
   });
 }
