@@ -15,3 +15,13 @@ export const getLastEditedGroceryListId = async (): Promise<number | undefined> 
 };
 
 export const SHOW_ADVANCED_RESTAURANT_FIELDS_KEY = 'showAdvancedRestaurantFields';
+
+export const PWA_UPDATE_NOTIFICATIONS_ENABLED_KEY = 'pwaUpdateNotificationsEnabled';
+
+export const pwaUpdateNotificationsQuery = {
+  queryKey: ['settings', PWA_UPDATE_NOTIFICATIONS_ENABLED_KEY],
+  queryFn: async () => {
+    const setting = await db.settings.get(PWA_UPDATE_NOTIFICATIONS_ENABLED_KEY);
+    return (setting?.value ?? 'true') === 'true';
+  },
+};

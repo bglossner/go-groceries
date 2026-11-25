@@ -14,8 +14,9 @@ export default defineConfig(({ mode }) => {
     console.log('PWA mode activated!');
     plugins.push(
       VitePWA({
-        registerType: 'autoUpdate',
+        registerType: 'prompt',
         workbox: {
+          clientsClaim: true,
           importScripts: ['sync-cache-cleanup.js'],
           globPatterns: ['**/*.{js,css,html,ico,png,svg,json,webmanifest}'],
           runtimeCaching: [
@@ -75,6 +76,8 @@ export default defineConfig(({ mode }) => {
     );
   } else {
     console.log('Not in PWA mode: ' + mode);
+    // Provide the inert virtual registration module outside the PWA builds.
+    plugins.push(VitePWA({ disable: true }));
   }
 
   const serverOptions = {

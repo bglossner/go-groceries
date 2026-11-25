@@ -15,7 +15,9 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [toastMessages, setToastMessages] = useState<Toast[]>([]);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info', action?: React.ReactNode) => {
-    setToastMessages((prev) => [...prev, { id: Math.random().toString(36).substring(7), message, type, action }]);
+    const id = Math.random().toString(36).substring(7);
+    setToastMessages((prev) => [...prev, { id, message, type, action }]);
+    return () => setToastMessages((prev) => prev.filter((toast) => toast.id !== id));
   }, []);
 
   const showSuccessToast = useCallback((message: string) => showToast(message, 'success'), [showToast]);

@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
-const root = resolve(import.meta.dirname, '../apps/frontend/dist');
+const root = resolve(process.env.GG_PWA_DIST ?? resolve(import.meta.dirname, '../apps/frontend/dist'));
 const types = {
   '.html': 'text/html',
   '.js': 'text/javascript',

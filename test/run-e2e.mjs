@@ -1,5 +1,5 @@
 import {spawn} from 'node:child_process';
-import {readFile,writeFile,mkdir,mkdtemp,readdir} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,mkdtemp,readdir,symlink} from 'node:fs/promises';
 import {join,resolve,dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import net from 'node:net';
@@ -134,8 +134,33 @@ for (const [signal,code] of [['SIGINT',130],['SIGTERM',143]]) process.on(signal,
   signalExitCode = code;process.exitCode = code;
   void shutdown().catch(error=>{console.error(error);process.exitCode=1;});
 });
-try {
-  await free(18926);await free(18927);
+async function runPwaUpdateReproduction() {
+  const frontend = join(root, 'apps/frontend');
+  const vite = join(dirname(require.resolve('vite/package.json', { paths: [frontend] })), 'bin/vite.js');
+  const currentDist = join(runtime, 'current-dist');
+  const firstDist = join(runtime, 'first-dist');
+  const nextDist = join(runtime, 'next-dist');
+
+  for (const [mode, outDir] of [['pwa-test', firstDist], ['pwa', nextDist]]) {
+    const build = await start(vite, ['build', '--mode', mode, '--outDir', outDir], frontend);
+    const result = await build.done;
+    console.log(`PWA update ${mode} build exit_code=${result}`);
+    if (result !== 0) return result;
+  }
+
+  await symlink(firstDist, currentDist);
+  const server = await start(join(root, 'test/pwa-server.mjs'), [], root, { GG_PWA_DIST: currentDist });
+  await ready('http://127.0.0.1:18926', server);
+  const tests = await start(require.resolve('@playwright/test/cli'), [
+    'test', '--config', join(root, 'test/playwright.config.mjs'), 'pwa-update.spec.mjs',
+  ], root, { GG_PWA_UPDATE_CURRENT_DIST: currentDist, GG_PWA_UPDATE_FIRST_DIST: firstDist, GG_PWA_UPDATE_NEXT_DIST: nextDist });
+  const result = await tests.done;
+  console.log(`PWA update reproduction exit_code=${result}`);
+  return result;
+}
+
+async function runRegression() {
+  await free(18927);
   const worker = await start(join(root,'test/worker-stub.mjs'),[],root);await ready('http://127.0.0.1:18927/__state',worker);
   const vite = await start(join(dirname(require.resolve('vite/package.json',{paths:[join(root,'apps/frontend')]})),'bin/vite.js'),['--port','18926','--strictPort','--mode','regression'],join(root,'apps/frontend'));
   await ready('http://127.0.0.1:18926',vite);
@@ -154,6 +179,16 @@ try {
       const offline=await start(require.resolve('@playwright/test/cli'),['test','--config',join(root,'test/playwright.config.mjs'),'--grep','installed PWA offline'],root,{GG_PWA_PHASE:'true'});
       const code=await offline.done;console.log('E2E PWA tests exit_code='+code);process.exitCode=signalExitCode??code;
     }
+  }
+}
+
+try {
+  await free(18926);
+  if (process.argv.includes('--pwa-update-only')) {
+    const result = await runPwaUpdateReproduction();
+    process.exitCode = signalExitCode ?? result;
+  } else {
+    await runRegression();
   }
 } catch (error) {console.error(error);process.exitCode=signalExitCode ?? 1;}
 finally {

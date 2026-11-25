@@ -1,5 +1,5 @@
 import {useAdvancedRestaurantFields} from '../hooks/useRestaurants';
-import {SHOW_ADVANCED_RESTAURANT_FIELDS_KEY} from '../util/db/settings';
+import { PWA_UPDATE_NOTIFICATIONS_ENABLED_KEY, SHOW_ADVANCED_RESTAURANT_FIELDS_KEY, pwaUpdateNotificationsQuery } from '../util/db/settings';
 import React, { useState, useEffect } from 'react';
 import { Typography, Box, IconButton, Button, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText, TextField, FormControlLabel, Switch } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -92,19 +92,14 @@ const SettingsPage: React.FC = () => {
     },
   });
 
-  const { data: pwaUpdateNotificationsSetting } = useQuery<Setting | undefined>({
-    queryKey: ['settings', 'pwaUpdateNotificationsEnabled'],
-    queryFn: () => db.settings.get('pwaUpdateNotificationsEnabled'),
-  });
-
-  const pwaUpdateNotificationsEnabled = pwaUpdateNotificationsSetting?.value === 'true';
+  const { data: pwaUpdateNotificationsEnabled = true } = useQuery(pwaUpdateNotificationsQuery);
 
   const savePwaUpdateNotificationsMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
-      await db.settings.put({ id: 'pwaUpdateNotificationsEnabled', value: enabled.toString() });
+      await db.settings.put({ id: PWA_UPDATE_NOTIFICATIONS_ENABLED_KEY, value: enabled.toString() });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', 'pwaUpdateNotificationsEnabled'] });
+      queryClient.invalidateQueries({ queryKey: pwaUpdateNotificationsQuery.queryKey });
     },
   });
 
