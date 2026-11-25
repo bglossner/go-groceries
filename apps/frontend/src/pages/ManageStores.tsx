@@ -10,6 +10,15 @@ import StoreBucket from '../components/StoreBucket';
 import IngredientItem from '../components/IngredientItem';
 import TrashCan from '../components/TrashCan';
 
+// Touch pointerdown fires before touchstart, so let TouchSensor own those gestures.
+class NonTouchPointerSensor extends PointerSensor {
+  static activators = PointerSensor.activators.map(({ eventName, handler }) => ({
+    eventName,
+    handler: (...args: Parameters<typeof handler>) =>
+      args[0].nativeEvent.pointerType !== 'touch' && handler(...args),
+  }));
+}
+
 const dropAnimation: DropAnimation = {
   sideEffects: defaultDropAnimationSideEffects({
     styles: {
@@ -68,8 +77,8 @@ const ManageStoresPage: React.FC = () => {
   }, [stores, ingredientStores]);
 
   const sensors = useSensors(
-    useSensor(TouchSensor),
-    useSensor(PointerSensor),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+    useSensor(NonTouchPointerSensor),
     useSensor(KeyboardSensor)
   );
 
