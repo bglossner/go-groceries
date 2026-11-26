@@ -48,31 +48,13 @@ const Meals: React.FC = () => {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedImage, setSelectedImage] = useState<RecipeImage | null>(null);
   const [highlightedMealId, setHighlightedMealId] = useState<number | null>(null);
-  const mealRefs = useRef<Record<number, HTMLDivElement | null>>({});
-
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const mealId = params.get('mealId');
-    if (mealId) {
-      const numericMealId = Number(mealId);
-      setHighlightedMealId(numericMealId);
-      const mealElement = mealRefs.current[numericMealId];
-      if (mealElement) {
-        setTimeout(() => {
-          const appBar = document.querySelector('header');
-          const appBarHeight = appBar ? appBar.clientHeight : 0;
-          const elementPosition = mealElement.getBoundingClientRect().top;
-          const offsetPosition = elementPosition + window.pageYOffset - appBarHeight;
-
-          window.scrollTo({
-            top: offsetPosition,
-            behavior: 'smooth'
-          });
-        }, 0);
-      }
-      setTimeout(() => setHighlightedMealId(null), 3000);
-    }
-  }, [location.search, mealRefs]);
+  const scrollSpaceRef = useRef<HTMLDivElement>(null);
+  const requestedMealRef = useRef<HTMLDivElement>(null);
+  const lastMealNavigation = useRef<{ location: typeof location; consumed: boolean }>();
+  const mealId = 'mealId' in location.search ? location.search.mealId : undefined;
+  const requestedMealId = typeof mealId === 'number' || (typeof mealId === 'string' && mealId.trim())
+    ? Number(mealId)
+    : null;
 
   const handleFilterDialogOpen = () => {
     setFilterDialogOpen(true);
@@ -120,6 +102,80 @@ const Meals: React.FC = () => {
       return mappedWithDate;
     },
   });
+
+  const visibleMeals = meals?.filter(meal => {
+    const matchesSearch = meal.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesTags = selectedFilterTags.every(filterTag => meal.tags?.includes(filterTag.id!));
+    return matchesSearch && matchesTags;
+  });
+  const hasRequestedMeal = visibleMeals?.some(meal => meal.id === requestedMealId);
+
+  useEffect(() => {
+    if (lastMealNavigation.current?.location !== location) {
+      lastMealNavigation.current = { location, consumed: false };
+    }
+    const navigation = lastMealNavigation.current;
+    const meal = requestedMealRef.current;
+    const scrollSpace = scrollSpaceRef.current;
+    if (!hasRequestedMeal || !meal || !scrollSpace) {
+      setHighlightedMealId(null);
+      return;
+    }
+    if (navigation.consumed) return;
+
+    const appBar = document.getElementById('site-app-bar');
+    const inputs = new AbortController();
+    let frame: number;
+    let timer: number | undefined;
+    let spacerHeight = 0;
+    let previousDestination: number | undefined;
+    let alignedScrollY: number | undefined;
+    const stopFollowing = () => {
+      window.cancelAnimationFrame(frame);
+      inputs.abort();
+    };
+
+    // A meal can move even when the total list height stays the same.
+    const followLayout = () => {
+      const headerBottom = appBar?.getBoundingClientRect().bottom ?? 0;
+      const { top: mealTop } = meal.getBoundingClientRect();
+      const scrollY = window.scrollY;
+      const destination = Math.max(0, Math.floor(mealTop + scrollY - headerBottom));
+      const contentBelowMeal = scrollSpace.getBoundingClientRect().top - mealTop;
+      const extraSpace = Math.max(0, Math.ceil(document.documentElement.clientHeight - headerBottom - contentBelowMeal));
+      if (destination === previousDestination && extraSpace === spacerHeight && scrollY !== alignedScrollY) {
+        stopFollowing();
+        return;
+      }
+
+      if (extraSpace !== spacerHeight) {
+        scrollSpace.style.height = `${extraSpace}px`;
+        spacerHeight = extraSpace;
+      }
+      if (scrollY !== destination) window.scrollTo({ top: destination, behavior: 'instant' });
+      previousDestination = destination;
+      alignedScrollY = window.scrollY;
+      frame = window.requestAnimationFrame(followLayout);
+    };
+
+    frame = window.requestAnimationFrame(() => {
+      navigation.consumed = true;
+      setHighlightedMealId(requestedMealId);
+      for (const event of ['wheel', 'pointerdown', 'keydown']) {
+        window.addEventListener(event, stopFollowing, { passive: true, signal: inputs.signal });
+      }
+      followLayout();
+      timer = window.setTimeout(() => {
+        stopFollowing();
+        setHighlightedMealId(null);
+      }, 3000);
+    });
+    return () => {
+      stopFollowing();
+      window.clearTimeout(timer);
+      scrollSpace.style.height = '';
+    };
+  }, [location, requestedMealId, hasRequestedMeal]);
 
   const { data: tags } = useQuery<Tag[]>({
     queryKey: ['tags'],
@@ -352,15 +408,15 @@ const Meals: React.FC = () => {
         ))}
       </Box>
       <List>
-        {meals?.filter(meal => {
-          const matchesSearch = meal.name.toLowerCase().includes(searchTerm.toLowerCase());
-          const matchesTags = selectedFilterTags.every(filterTag => meal.tags?.includes(filterTag.id!));
-          return matchesSearch && matchesTags;
-        }).map((meal) => {
+        {visibleMeals?.map((meal) => {
           const thumbnailImage = meal ? mealThumbnail(meal, recipes) : undefined;
 
           return (
-            <Accordion key={meal.id} ref={el => mealRefs.current[meal.id!] = el} sx={{ backgroundColor: highlightedMealId === meal.id ? 'yellow' : 'inherit' }}>
+            <Accordion
+              key={meal.id}
+              ref={meal.id === requestedMealId ? requestedMealRef : undefined}
+              sx={{ backgroundColor: highlightedMealId === meal.id ? 'yellow' : 'inherit' }}
+            >
               <AccordionSummary expandIcon={<ExpandMore />}>
                 <Box sx={{ width: '100%', display: 'flex', alignItems: 'center' }}>
                   {thumbnailImage && (
@@ -431,6 +487,8 @@ const Meals: React.FC = () => {
           )
         })}
       </List>
+
+      <div ref={scrollSpaceRef} aria-hidden="true" />
 
       <MealCreationTypeSelection
         open={openCreationTypeSelection}

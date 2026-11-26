@@ -15,7 +15,7 @@ const RootComponent: React.FC = () => {
 
   return (
     <>
-      <AppBar position="fixed">
+      <AppBar id="site-app-bar" position="fixed">
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ textAlign: 'left' }}>
             <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>

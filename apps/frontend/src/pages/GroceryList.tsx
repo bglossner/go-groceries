@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db, type GroceryList, type Meal, type Recipe, type Store, type IngredientStore } from '../db/db';
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Checkbox, TextField, Typography, Accordion, AccordionSummary, AccordionDetails, Box, ToggleButtonGroup, ToggleButton, Container } from '@mui/material';
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, IconButton, Checkbox, TextField, Typography, Accordion, AccordionSummary, AccordionDetails, Box, ToggleButtonGroup, ToggleButton, Container, Link as MuiLink } from '@mui/material';
 import { Edit, Delete, ExpandMore } from '@mui/icons-material';
 import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -422,7 +422,11 @@ const GroceryListPage: React.FC = () => {
                             }}
                           />
                         )}
-                        <ListItemText primary={meal.name} />
+                        <ListItemText primary={(
+                          <MuiLink component={Link} to="/meals" search={{ mealId: String(mealId) }}>
+                            {meal.name}
+                          </MuiLink>
+                        )} />
                       </ListItem>
                     ) : null;
                   })}
