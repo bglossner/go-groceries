@@ -1,8 +1,10 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { db } from '../src/db/db.ts';
-import { cacheImage } from '../src/db/image-cache.ts';
+import { cacheImage, hashBlob } from '../src/db/image-cache.ts';
 import { getExportBlob } from '../src/util/db/export.ts';
 import { syncTo } from '../src/util/sync.ts';
+import { checkAndTriggerAutoSyncTo } from '../src/util/sync-to.ts';
+import { photoRejectionKey } from '../src/util/sync/image-preflight.ts';
 import { syncFromDb, saveSyncFromLocation, importSyncFile, checkAndTriggerAutoSync } from '../src/util/sync-from.ts';
 import { hydrateSnapshot } from '../src/util/sync/hydrate.ts';
 import { freezeSnapshot, localMetadataDigest } from '../src/util/sync/snapshot-adapter.ts';
@@ -11,7 +13,7 @@ import { boundedJson, v2Post } from '../src/util/sync/api.ts';
 import { createShareLink } from '../src/util/sync/share.ts';
 import { createApp } from '../../go-groceries-images-meal-resolver/src/index.ts';
 import { createStorage } from '../../../test/memory-storage.mjs';
-import { cleanDatabase, meal, image } from './helpers.mjs';
+import { cleanDatabase, meal, image, png } from './helpers.mjs';
 cleanDatabase();
 let storage, fetchMock, rejectContainer;
 beforeEach(async () => {
@@ -162,6 +164,173 @@ test('a new Worker container rejection names the photo and stays omitted across 
   await syncTo({ automatic: false });
   expect(published().assets).toEqual([]);
   expect(storage.events.filter(e => e.action === 'SIGNED_PUT')).toHaveLength(1);
+});
+
+test('scheduled sync logs known Worker rejections and never decodes or uploads the rejected photo again', async () => {
+  const ref = await seed();
+  const onWarning = vi.fn();
+  rejectContainer = true;
+  await expect(syncTo({ automatic: true, trigger: 'debounced', onWarning })).rejects.toThrow('container or dimensions');
+  const decode = vi.spyOn(globalThis, 'createImageBitmap');
+  try {
+    await expect(checkAndTriggerAutoSyncTo(onWarning)).resolves.toEqual({ type: 'SUCCESS' });
+    await db.syncs.where('type').equals('to').modify({ lastSyncedAt: new Date(0) });
+    await expect(checkAndTriggerAutoSyncTo(onWarning)).resolves.toEqual({ type: 'SUCCESS' });
+    expect(onWarning).not.toHaveBeenCalled();
+    expect(decode).not.toHaveBeenCalled();
+    expect(storage.events.filter(event => event.action === 'SIGNED_PUT')).toHaveLength(1);
+    expect(published().assets).toEqual([]);
+    expect(await db.imageAssets.get(ref.assetId)).toBeDefined();
+  } finally { decode.mockRestore(); }
+});
+
+test('same-size bytes repaired under the original asset ID are retried after an integrity skip', async () => {
+  const ref = await seed();
+  const original = await db.imageAssets.get(ref.assetId);
+  const invalid = new Blob([new Uint8Array(original.byteLength)], { type: original.mimeType });
+  await db.imageAssets.update(ref.assetId, { blob: invalid });
+  const onWarning = vi.fn();
+  const options = { automatic: true, trigger: 'debounced', onWarning };
+  await syncTo(options);
+  expect(onWarning).toHaveBeenCalledWith(expect.stringContaining('failed its integrity check'));
+  await syncTo(options);
+  expect(onWarning).toHaveBeenCalledTimes(1);
+  expect(published().assets).toEqual([]);
+
+  await db.imageAssets.put(original);
+  await syncTo(options);
+  expect(published().assets.map(asset => asset.assetId)).toEqual([ref.assetId]);
+  expect(await db.settings.filter(setting => setting.id.startsWith('sync-image-problem-')).count()).toBe(0);
+});
+
+test('a prepared warning is still new after a failed freeze write and a run without a notification callback', async () => {
+  const ref = await cacheImage(new Blob(['wrong format'], { type: 'image/png' }));
+  await db.meals.put({ ...meal(), images: [{ ...ref, type: 'asset' }] });
+  const onWarning = vi.fn();
+  const update = vi.spyOn(db.syncs, 'update').mockRejectedValueOnce(new Error('Test writer write failure'));
+  try {
+    await expect(syncTo({ automatic: true, trigger: 'debounced', onWarning })).rejects.toThrow('Test writer write failure');
+    expect(onWarning).not.toHaveBeenCalled();
+  } finally { update.mockRestore(); }
+
+  await syncTo({ automatic: true, trigger: 'debounced' });
+  await db.syncs.where('type').equals('to').modify({ lastSyncedAt: new Date(0) });
+  await expect(checkAndTriggerAutoSyncTo(onWarning)).resolves.toEqual({ type: 'SUCCESS_WITH_WARNING' });
+  expect(onWarning).toHaveBeenCalledWith(expect.stringContaining('Only JPEG, PNG and WebP photos can sync.'));
+  await db.syncs.where('type').equals('to').modify({ lastSyncedAt: new Date(0) });
+  await expect(checkAndTriggerAutoSyncTo(onWarning)).resolves.toEqual({ type: 'SUCCESS' });
+  expect(onWarning).toHaveBeenCalledTimes(1);
+  const onProgress = vi.fn();
+  await syncTo({ automatic: true, trigger: 'manual', onProgress });
+  expect(onProgress.mock.lastCall[0]).toContain('Only JPEG, PNG and WebP photos can sync.');
+});
+
+test('an ambiguous browser decode failure warns once, then sync retries the original bytes', async () => {
+  const ref = await seed();
+  const error = new DOMException('Test could not read decoded image', 'InvalidStateError');
+  const decode = vi.spyOn(globalThis, 'createImageBitmap').mockRejectedValueOnce(error).mockRejectedValueOnce(error);
+  try {
+    const onWarning = vi.fn();
+    const options = { automatic: true, trigger: 'debounced', onWarning };
+    await syncTo(options);
+    await syncTo(options);
+    expect(decode).toHaveBeenCalledTimes(2);
+    expect(onWarning).toHaveBeenCalledTimes(1);
+    expect(published().assets).toEqual([]);
+    await syncTo(options);
+    expect(decode).toHaveBeenCalledTimes(3);
+    expect(published().assets.map(asset => asset.assetId)).toEqual([ref.assetId]);
+    decode.mockRejectedValueOnce(error);
+    await syncTo(options);
+    expect(onWarning).toHaveBeenCalledTimes(1);
+    expect(published().assets).toEqual([]);
+  } finally { decode.mockRestore(); }
+});
+
+test('a corrupt derived copy stays omitted until that cached row is repaired', async () => {
+  const bytes = Uint8Array.from(png);
+  new DataView(bytes.buffer).setUint32(16, 9000);
+  const source = await cacheImage(new Blob([bytes], { type: 'image/png' }));
+  await db.meals.put({ ...meal(), images: [{ ...source, type: 'asset' }] });
+  const blob = image();
+  const assetId = await hashBlob(blob);
+  const now = new Date().toISOString();
+  const valid = { assetId, sha256: assetId, mimeType: blob.type, byteLength: blob.size, blob,
+    cachedAt: now, verifiedAt: now };
+  await db.imageAssets.add({ ...valid, blob: new Blob([new Uint8Array(blob.size)], { type: blob.type }) });
+  const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: vi.fn() });
+  const encode = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(callback => callback(blob));
+  try {
+    const onWarning = vi.fn();
+    const options = { automatic: true, trigger: 'debounced', onWarning };
+    await syncTo(options);
+    expect(onWarning).toHaveBeenCalledWith(expect.stringContaining('cached cloud copy failed its integrity check'));
+    await syncTo(options);
+    expect(encode).toHaveBeenCalledTimes(1);
+    expect(onWarning).toHaveBeenCalledTimes(1);
+    expect(published().assets).toEqual([]);
+
+    await db.imageAssets.put(valid);
+    await syncTo(options);
+    expect(published().assets.map(asset => asset.assetId)).toEqual([assetId]);
+    expect((await db.meals.get(1)).images[0].assetId).toBe(source.assetId);
+    expect(await db.imageAssets.get(source.assetId)).toBeDefined();
+  } finally { context.mockRestore(); encode.mockRestore(); }
+});
+
+test.each([false, true])('an original sharing a rejected cloud copy warns once (legacy marker: %s)', async legacy => {
+  const photos = [];
+  for (const width of [9000, 9001]) {
+    const bytes = Uint8Array.from(png);
+    new DataView(bytes.buffer).setUint32(16, width);
+    photos.push(await cacheImage(new Blob([bytes], { type: 'image/png' })));
+  }
+  await db.meals.put({ ...meal(), images: [{ ...photos[0], type: 'asset' }] });
+  const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: vi.fn() });
+  const encode = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(callback => callback(image()));
+  try {
+    const onWarning = vi.fn();
+    const options = { automatic: true, trigger: 'debounced', onWarning };
+    rejectContainer = true;
+    await expect(syncTo(options)).rejects.toThrow('container or dimensions of a photo for meal “Soup”');
+    if (legacy) {
+      const { collectionId } = await db.syncs.where('type').equals('to').first();
+      await db.settings.put({ id: photoRejectionKey(collectionId, await hashBlob(image())), value: 'true' });
+    } else {
+      await syncTo(options);
+      expect(onWarning).not.toHaveBeenCalled();
+    }
+    await db.meals.update(1, { name: 'New soup', images: [{ ...photos[1], type: 'asset' }] });
+    await syncTo(options);
+    expect(onWarning).toHaveBeenCalledWith(expect.stringContaining('Photo skipped for meal “New soup”.'));
+    await syncTo(options);
+    expect(onWarning).toHaveBeenCalledTimes(1);
+    expect(encode).toHaveBeenCalledTimes(2);
+    expect(storage.events.filter(event => event.action === 'SIGNED_PUT')).toHaveLength(1);
+    expect(published().assets).toEqual([]);
+  } finally { context.mockRestore(); encode.mockRestore(); }
+});
+
+test.each(['network', 'timeout', 429, 503])('a transient photo completion failure (%s) can retry without quarantine', async failure => {
+  const ref = await seed();
+  const transport = fetchMock.getMockImplementation();
+  const isComplete = input => new URL(String(input)).pathname.endsWith('/images/complete');
+  fetchMock.mockImplementation(async (input, options) => {
+    if (!isComplete(input)) return transport(input, options);
+    if (failure === 'network') throw new TypeError('Test network interruption');
+    if (failure === 'timeout') throw new DOMException('Test timeout', 'TimeoutError');
+    return Response.json({ error: 'Invalid image container or dimensions' }, { status: failure });
+  });
+  const onWarning = vi.fn();
+  const options = { automatic: true, trigger: 'debounced', onWarning };
+  await expect(syncTo(options)).rejects.toThrow('Cloud sync');
+  expect(fetchMock.mock.calls.filter(([input]) => isComplete(input))).toHaveLength(3);
+  expect(await db.settings.filter(setting => setting.id.startsWith('sync-image-')).count()).toBe(0);
+
+  fetchMock.mockImplementation(transport);
+  await syncTo(options);
+  expect(published().assets.map(asset => asset.assetId)).toEqual([ref.assetId]);
+  expect(onWarning).not.toHaveBeenCalled();
 });
 
 test('a photo rejected by the previous format check can sync in its existing collection', async () => {

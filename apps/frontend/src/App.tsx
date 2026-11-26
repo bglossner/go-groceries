@@ -101,12 +101,10 @@ const AppWrapper = () => {
 
     if (syncToData?.type === 'ERROR') {
       showErrorToast(syncToData.message);
-    } else if (syncToData) {
-      if (syncToData.type === 'SUCCESS') {
-        showSuccessToast('Automatic sync [to] successful!');
-      } else {
-        showSuccessToast('Automatic sync [to] successful! Nothing done.');
-      }
+    } else if (syncToData?.type === 'SUCCESS') {
+      showSuccessToast('Automatic sync [to] successful!');
+    } else if (syncToData?.type === 'NO_SYNC') {
+      showSuccessToast('Automatic sync [to] successful! Nothing done.');
     }
   }, [syncToData, isSyncingTo, showSuccessToast, showErrorToast]);
 

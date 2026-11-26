@@ -9,7 +9,7 @@ import {
 } from '@mui/material';
 import { clearSyncLog, readSyncLog, subscribeToSyncLog } from '../util/sync/diagnostics';
 import {
-  attemptMessage, attemptStatus, elapsedLabel, imageFields, outcomeLabels, stepLabels, stepMessage,
+  attemptMessage, attemptStatus, elapsedLabel, imageFields, outcomeLabels, photoSkipCount, stepLabels, stepMessage,
   stepStatus, stepTitle, syncReport, triggerLabels, type DiagnosticRun, type DiagnosticStep,
 } from '../util/sync/diagnostics-model';
 
@@ -53,7 +53,7 @@ function RunDetails({ run }: { run: DiagnosticRun }) {
     ? [...run.steps].reverse().find(step => step.outcome === 'failed') ?? run.steps.at(-1)
     : run.outcome === 'unknown' ? run.steps.at(-1) : undefined;
   const steps = run.steps.filter(step => step !== highlighted);
-  const warnings = run.steps.filter(step => step.outcome === 'warning');
+  const skipped = photoSkipCount(run);
   const reused = run.steps.filter(step => step.kind === 'reuse').reduce((total, step) => total + (step.count ?? 0), 0);
   const end = run.endedAt === undefined ? 'End time unknown' : date.format(run.startedAt) === date.format(run.endedAt)
     ? time.format(run.endedAt) : dateTime(run.endedAt);
@@ -72,8 +72,8 @@ function RunDetails({ run }: { run: DiagnosticRun }) {
       <AlertTitle sx={{ mb: reused ? undefined : 0 }}>Snapshot published</AlertTitle>
       {reused > 0 && `${reused} verified cloud ${reused === 1 ? 'image' : 'images'} reused.`}
     </Alert>}
-    {warnings.length > 0 && <Alert severity="warning" variant="outlined">
-      Photos were skipped. Open run steps for details.
+    {skipped > 0 && <Alert severity="warning" variant="outlined">
+      {skipped === 1 ? '1 photo skipped.' : `${skipped} photo skips.`} Open run steps for available details.
     </Alert>}
     {run.omitted > 0 && <Typography variant="body2" color="text.secondary">
       {run.omitted} {run.omitted === 1 ? 'step' : 'steps'} omitted to fit local history.
@@ -143,10 +143,16 @@ export function SyncLogDialog() {
     }
   }
 
+  const latest = log.runs[0];
+  const photosSkipped = latest?.outcome === 'succeeded' && photoSkipCount(latest) > 0;
+  const openLog = () => { setSelection(undefined); setOpen(true); };
+
   return <>
     <Stack direction="row" gap={1} alignItems="center" justifyContent="center" sx={{ mt: 2 }}>
-      <Button variant="outlined" onClick={() => { setSelection(undefined); setOpen(true); }}>Sync log</Button>
-      {log.runs[0] && <RunStatus run={log.runs[0]} />}
+      <Button variant="outlined" onClick={openLog}>Sync log</Button>
+      {photosSkipped ? <Chip size="small" label="Photos skipped" variant="outlined" color="warning"
+        sx={theme => ({ color: theme.palette.warning[theme.palette.mode === 'dark' ? 'light' : 'dark'] })}
+        aria-label="Open sync log for skipped photos" onClick={openLog} /> : latest && <RunStatus run={latest} />}
     </Stack>
     <Dialog open={open} onClose={closeLog}
       fullWidth maxWidth="md" fullScreen={phone} aria-labelledby={titleId}>

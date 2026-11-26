@@ -7,7 +7,7 @@ import { canonicalJson, parseSnapshot } from './sync/snapshot-validation';
 import { SyncApiError, v2Post, writerPermission } from './sync/api';
 import { withCloudSyncLock } from './sync/lock';
 import { collectionUrl } from './sync/location';
-import { pendingPhotoIsObsolete, photoRejectionKey } from './sync/image-preflight';
+import { acknowledgePhotoNotices, pendingPhotoIsObsolete, photoRejectionKey, type PhotoNotice } from './sync/image-preflight';
 import { photoOwners } from './sync/snapshot-photos';
 import { beginSyncRun, logStep, networkOutcome, safely, startAttempt, type SyncRecorder } from './sync/diagnostics';
 import type { SyncTrigger } from './sync/diagnostics-model';
@@ -15,7 +15,13 @@ import { diagnosticImage, observeSmallImage, photoAttribution, type ObservedImag
 
 export type SyncProgress = (message: string) => void;
 type SyncToOptions = { existingSync?: Sync; automatic: boolean; newLocation?: boolean; onProgress?: SyncProgress; onWarning?: SyncProgress; trigger?: SyncTrigger };
-type PendingPublication = NonNullable<Sync['pendingPublication']> & { imageWarnings?: string[]; needsImageRepair?: true };
+type PendingPublication = NonNullable<Sync['pendingPublication']> & {
+  imageWarnings?: string[]; imageSkipCount?: number; photoSources?: Record<string, string[]>; needsImageRepair?: true;
+};
+
+function photoWarning(warnings: string[]) {
+  return warnings.length ? `${warnings.join(' ')} Originals are kept on this device.` : '';
+}
 
 export async function syncTo(options: SyncToOptions): Promise<string> {
   const recorder = beginSyncRun(options.trigger ?? (options.newLocation ? 'setup' : 'manual'));
@@ -45,6 +51,7 @@ async function pendingHasObsoletePhotos(pending: PendingPublication) {
 
 async function publish(options: SyncToOptions, recorder?: SyncRecorder, followPending = true) {
   const progress = options.onProgress ?? (() => undefined);
+  const background = options.trigger === 'scheduled' || options.trigger === 'debounced';
   const permission = await logStep(recorder, 'authorize', writerPermission);
   const { sync, pendingSnapshot, obsoletePhotos, hasRemovedFields } = await logStep(recorder, 'location', async () => {
     let sync = options.existingSync?.id ? await db.syncs.get(options.existingSync.id) : await db.syncs.where('type').equals('to').first();
@@ -68,6 +75,7 @@ async function publish(options: SyncToOptions, recorder?: SyncRecorder, followPe
   let pending: PendingPublication | undefined = sync.pendingPublication;
   const resumedPending = !!pending && pendingSnapshot?.data.schemaVersion === 16 && !hasRemovedFields && !obsoletePhotos;
   const observations = new Map<string, ObservedImage>();
+  let manualNotices: PhotoNotice[] = [];
   // An obsolete local frozen snapshot needs a fresh immutable ID; keep its revision condition.
   if (!pending || pendingSnapshot?.data.schemaVersion === 15 || hasRemovedFields || obsoletePhotos) {
     progress('Preparing metadata and checking local images...');
@@ -83,10 +91,10 @@ async function publish(options: SyncToOptions, recorder?: SyncRecorder, followPe
     }
     pending = await logStep(recorder, 'freeze', async () => {
       await runImageMigration();
-      const { snapshot, warnings } = await freezeSnapshot(collectionId, crypto.randomUUID(), recorder && {
+      const { snapshot, warnings, newWarnings, notices, skippedCount, photoSources } = await freezeSnapshot(collectionId, crypto.randomUUID(), recorder && {
         recorder, pass: permission.pass, observed: observations,
       });
-      const prepared = { snapshot, expectedRevision, imageWarnings: warnings };
+      const prepared = { snapshot, expectedRevision, imageWarnings: warnings, imageSkipCount: skippedCount, photoSources };
       const writerId = sync.id!;
       const revision = sync.revision;
       await db.transaction('rw', db.syncs, async () => {
@@ -97,10 +105,15 @@ async function publish(options: SyncToOptions, recorder?: SyncRecorder, followPe
         }
         await db.syncs.update(writerId, { pendingPublication: prepared });
       });
+      if (!background) manualNotices = notices;
+      else if (newWarnings.length && options.onWarning) {
+        options.onWarning(photoWarning(newWarnings));
+        await acknowledgePhotoNotices(notices);
+      }
       return prepared;
     });
   } else if (pending.imageWarnings?.length) {
-    recorder?.warning('previousSkips', { count: pending.imageWarnings.length });
+    recorder?.warning('previousSkips', { count: pending.imageSkipCount ?? pending.imageWarnings.length });
   }
   const publication = pending;
   const snapshot = await logStep(recorder, 'validate', () => {
@@ -120,7 +133,10 @@ async function publish(options: SyncToOptions, recorder?: SyncRecorder, followPe
   };
   const markForRepair = async (rejectedAssetId?: string) => db.transaction('rw', db.syncs, db.settings, async () => {
     await requirePending();
-    if (rejectedAssetId) await db.settings.put({ id: photoRejectionKey(collectionId, rejectedAssetId), value: 'true' });
+    if (rejectedAssetId) {
+      const sources = publication.photoSources?.[rejectedAssetId];
+      await db.settings.put({ id: photoRejectionKey(collectionId, rejectedAssetId), value: sources ? JSON.stringify(sources) : 'true' });
+    }
     const stale: PendingPublication = { ...publication, needsImageRepair: true };
     await db.syncs.update(sync.id!, { pendingPublication: stale });
   });
@@ -230,9 +246,11 @@ async function publish(options: SyncToOptions, recorder?: SyncRecorder, followPe
   // A recovered frozen revision may predate later local edits. Publish a fresh revision
   // before acknowledging the caller's queue, including after a browser restart.
   if (resumedPending && followPending) return publish(options, recorder, false);
-  const warnings = publication.imageWarnings ?? [];
-  const warning = warnings.length ? `${warnings.join(' ')} Originals are kept on this device.` : '';
+  const warning = background ? '' : photoWarning(publication.imageWarnings ?? []);
   progress([`Synced metadata; ${snapshot.assets.length} verified cloud images. Unchanged images were reused.`, warning].filter(Boolean).join(' '));
-  if (warning) options.onWarning?.(warning);
+  if (warning) {
+    options.onWarning?.(warning);
+    if (options.onWarning || options.onProgress) await acknowledgePhotoNotices(manualNotices);
+  }
   return collectionUrl(collectionId);
 }

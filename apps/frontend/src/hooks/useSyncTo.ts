@@ -15,12 +15,17 @@ export const useSyncTo = () => {
   const { data: existingSyncTo, ...query } = useQuery<Sync | null>({ queryKey: ['syncTo'],
     queryFn: async () => await db.syncs.where('type').equals('to').first() ?? null });
   const syncToMutation = useMutation({
-    mutationFn: (options: SyncToOptions) => syncTo({ ...options, existingSync: options.existingSyncTo, onProgress: setProgress,
-      onWarning: options.automatic ? message => showActionToast(message, undefined) : undefined }),
-    onSuccess: (_url, options) => {
-      queryClient.invalidateQueries({ queryKey: ['syncTo'] });
-      showSuccessToast(options.automatic ? 'Automatic sync [to] successful!' : 'Manual sync [to] successful!');
+    mutationFn: async (options: SyncToOptions) => {
+      let warned = false;
+      const url = await syncTo({ ...options, existingSync: options.existingSyncTo, onProgress: setProgress,
+        onWarning: options.trigger === 'debounced' ? message => {
+          warned = true;
+          showActionToast(message, undefined);
+        } : undefined });
+      if (!warned) showSuccessToast(options.trigger === 'debounced' ? 'Automatic sync [to] successful!' : 'Manual sync [to] successful!');
+      return url;
     },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['syncTo'] }); },
     onError: (error: Error) => {
       setProgress(error.message); showErrorToast(error.message);
       queryClient.invalidateQueries({ queryKey: ['syncTo'] });

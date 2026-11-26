@@ -302,7 +302,10 @@ function createRecorder(trigger: SyncTrigger) {
     refresh: () => safely(checkpoint),
     acquired: () => safely(() => wait.finish('succeeded')),
     warning: (kind: 'skipped' | 'previousSkips', data: { image?: DiagnosticImage; count?: number; reason?: unknown }) => {
-      safely(() => start(kind, { image: data.image, count: data.count, reason: approvedSkipReason(data.reason) }).finish('warning'));
+      safely(() => {
+        run.photoSkips = (run.photoSkips ?? 0) + (kind === 'skipped' ? 1 : data.count ?? 0);
+        start(kind, { image: data.image, count: data.count, reason: approvedSkipReason(data.reason) }).finish('warning');
+      });
     },
     reuse: (count: number) => safely(() => start('reuse', { count }).finish('succeeded')),
     finish(outcome: 'succeeded' | 'failed') {

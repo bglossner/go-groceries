@@ -10,11 +10,13 @@ export const hashBlob = async (blob: Blob): Promise<string> => {
   const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 };
+export class InvalidCachedImageError extends Error {}
+
 export const verifyCachedAsset = async (asset: LocalImageAsset): Promise<void> => {
   if (!(asset.blob instanceof Blob) || !/^[a-f0-9]{64}$/.test(asset.assetId) ||
       asset.sha256 !== asset.assetId || asset.byteLength !== asset.blob.size ||
       asset.mimeType !== asset.blob.type || await hashBlob(asset.blob) !== asset.assetId) {
-    throw new Error('Invalid cached image bytes');
+    throw new InvalidCachedImageError('Invalid cached image bytes');
   }
 };
 

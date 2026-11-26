@@ -5,7 +5,7 @@ import type { ImageRef } from '../../shareable/image-assets';
 import { SNAPSHOT_TABLES, type Snapshot, type SnapshotRows } from '../../shareable/snapshot';
 import { canonicalJson, makeAsset, parseSnapshot } from './snapshot-validation';
 import { getDiffOfDbs } from '../db/import';
-import { photoRejectionKey, preparePhoto, type PreparedPhoto } from './image-preflight';
+import { prepareSyncPhoto, type PhotoNotice, type PreparedPhoto } from './image-preflight';
 import { photoOwner, photoOwners, updatePhotoReferences } from './snapshot-photos';
 import { diagnosticImage, photoAttribution, type ObservedImage } from './diagnostic-photos';
 import { safely, type SyncRecorder } from './diagnostics';
@@ -70,21 +70,28 @@ export async function freezeSnapshot(collectionId: string, snapshotId: string, d
   const attribution = safely(() => diagnostics && photoAttribution(frozen.data, diagnostics.pass));
   const photos = new Map<string, PreparedPhoto>();
   const warnings = new Set<string>();
+  const newWarnings = new Set<string>();
+  const notices: PhotoNotice[] = [];
+  let skippedCount = 0;
   let index = 0;
   for (const [assetId, source] of frozen.copies) {
     index++;
     const names = [...frozen.owners.get(assetId)!].join(', ');
     try {
-      const photo = await preparePhoto(source);
-      const reason = 'reason' in photo ? photo.reason : await db.settings.get(photoRejectionKey(collectionId, photo.assetId))
-        ? 'Cloud storage rejected its container or dimensions.' : undefined;
-      if (reason) {
-        warnings.add(`Photo skipped for ${names}. ${reason}`);
+      const photo = await prepareSyncPhoto(source, collectionId);
+      if ('reason' in photo) {
+        skippedCount++;
+        const warning = `Photo skipped for ${names}. ${photo.reason}`;
+        warnings.add(warning);
+        if (photo.notice) {
+          newWarnings.add(warning);
+          notices.push(photo.notice);
+        }
         safely(() => diagnostics?.recorder.warning('skipped', {
-          reason, image: diagnosticImage(index, frozen.copies.size, 'assetId' in photo ? photo : source,
+          reason: photo.reason, image: diagnosticImage(index, frozen.copies.size, photo.descriptor ?? source,
             attribution?.get(assetId), photo.observed),
         }));
-      } else if ('assetId' in photo) {
+      } else {
         photos.set(assetId, photo);
         safely(() => { if (photo.observed) diagnostics?.observed.set(photo.assetId, photo.observed); });
       }
@@ -93,11 +100,18 @@ export async function freezeSnapshot(collectionId: string, snapshotId: string, d
     }
   }
   updatePhotoReferences(frozen.data.tables, photos);
-  const unique = new Map([...photos.values()].map(photo => [photo.assetId, photo]));
+  const unique = new Map<string, PreparedPhoto>();
+  const photoSources = new Map<string, string[]>();
+  for (const [sourceId, photo] of photos) {
+    unique.set(photo.assetId, photo);
+    const originals = photoSources.get(photo.assetId) ?? [];
+    originals.push(sourceId);
+    photoSources.set(photo.assetId, originals);
+  }
   const assets = [...unique.values()].map(({ assetId, mimeType, byteLength }) =>
     makeAsset(collectionId, { sha256: assetId, mimeType, byteLength }));
   const snapshot = parseSnapshot({ format: 'go-groceries-snapshot', version: 2, collectionId, snapshotId, assets, data: frozen.data });
-  return { snapshot, warnings: [...warnings] };
+  return { snapshot, warnings: [...warnings], newWarnings: [...newWarnings], notices, skippedCount, photoSources: Object.fromEntries(photoSources) };
 }
 
 export function localTables(snapshot: Snapshot) {

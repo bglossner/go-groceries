@@ -234,6 +234,8 @@ test('many nested skip warnings preserve the open preflight step if it later fai
   const [entry] = readSyncLog().runs;
   expect(entry.steps).toContainEqual(expect.objectContaining({ kind: 'freeze', outcome: 'failed' }));
   expect(entry.omitted).toBeGreaterThan(0);
+  expect(entry.photoSkips).toBe(logStepLimit + 10);
+  expect(syncReport(entry)).toContain(`Photo skips: ${logStepLimit + 10}`);
 });
 
 

@@ -150,9 +150,14 @@ export const runSchema = z.object({
   trigger,
   outcome: z.enum(['unknown', 'succeeded', 'failed']),
   omitted: count,
+  photoSkips: count.optional(),
   steps: z.array(stepSchema).max(logStepLimit),
 });
 export type DiagnosticRun = z.output<typeof runSchema>;
+export function photoSkipCount(run: DiagnosticRun) {
+  return run.photoSkips ?? run.steps.reduce((total, step) => total +
+    (step.kind === 'skipped' ? 1 : step.kind === 'previousSkips' ? step.count ?? 0 : 0), 0);
+}
 export type DiagnosticStep = DiagnosticRun['steps'][number];
 export type DiagnosticImage = NonNullable<DiagnosticStep['image']>;
 export type DiagnosticAttempt = DiagnosticStep['attempts'][number];
@@ -228,6 +233,8 @@ export function syncReport(input: DiagnosticRun, includeNames = false) {
     `${outcomeLabels[run.outcome]} · ${triggerLabels[run.trigger]}`,
     `Started ${new Date(run.startedAt).toISOString()}`,
     `Ended ${run.endedAt === undefined ? 'Unknown' : new Date(run.endedAt).toISOString()}`];
+  const skips = photoSkipCount(run);
+  if (skips) lines.push(`Photo skips: ${skips}`);
   const rows = run.steps.map(step => [
     `${stepTitle(step)} | ${stepLabels[step.kind][1]} | ${stepStatus(step)} | ${elapsedLabel(step.elapsed)}`,
     stepMessage(step),
